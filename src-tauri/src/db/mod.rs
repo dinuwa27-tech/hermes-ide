@@ -305,13 +305,14 @@ impl Database {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id TEXT,
                 project_id TEXT,
-                kind TEXT NOT NULL CHECK(kind IN ('file','memory','text')),
+                kind TEXT NOT NULL CHECK(kind IN ('file','memory','text','directory')),
                 target TEXT NOT NULL,
                 label TEXT,
                 priority INTEGER DEFAULT 128,
                 created_at INTEGER DEFAULT (strftime('%s','now'))
             );
             CREATE INDEX IF NOT EXISTS idx_pins_session ON context_pins(session_id);
+            CREATE INDEX IF NOT EXISTS idx_pins_project ON context_pins(project_id);
 
             CREATE TABLE IF NOT EXISTS error_sessions (
                 error_pattern_id INTEGER NOT NULL,
@@ -365,6 +366,13 @@ impl Database {
                 UNIQUE(session_id, version)
             );
             CREATE INDEX IF NOT EXISTS idx_ctx_snap_session ON context_snapshots(session_id);
+
+            CREATE TABLE IF NOT EXISTS hermes_project_config (
+                realm_id TEXT PRIMARY KEY,
+                config_json TEXT NOT NULL,
+                config_hash TEXT,
+                loaded_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
         ").map_err(|e| format!("Migration failed: {}", e))?;
 
         // Migrate existing projects → realms (one-time, idempotent)
@@ -847,9 +855,11 @@ impl Database {
     }
 
     pub fn get_context_pins(&self, session_id: Option<&str>, project_id: Option<&str>) -> Result<Vec<ContextPin>, String> {
+        // Return pins that match the session OR the project (project-scoped pins are shared)
         let mut stmt = self.conn.prepare(
             "SELECT id, session_id, project_id, kind, target, label, priority, created_at
-             FROM context_pins WHERE (session_id = ?1 OR session_id IS NULL) AND (project_id = ?2 OR project_id IS NULL)
+             FROM context_pins
+             WHERE (session_id = ?1 OR (session_id IS NULL AND project_id = ?2) OR (session_id IS NULL AND project_id IS NULL))
              ORDER BY priority DESC, created_at DESC"
         ).map_err(|e| e.to_string())?;
 
@@ -864,6 +874,81 @@ impl Database {
         let mut entries = Vec::new();
         for row in rows { entries.push(row.map_err(|e| e.to_string())?); }
         Ok(entries)
+    }
+
+    /// Get merged memory: project-scoped + global, with project taking precedence
+    pub fn get_merged_memory(&self, realm_ids: &[String]) -> Result<Vec<MemoryEntry>, String> {
+        // Start with global memory
+        let mut entries = self.get_all_memory_entries("global", "global")?;
+        let mut seen_keys = std::collections::HashSet::new();
+        let mut result = Vec::new();
+
+        // Project-scoped memory takes precedence
+        for realm_id in realm_ids {
+            let project_entries = self.get_all_memory_entries("project", realm_id)?;
+            for entry in project_entries {
+                if seen_keys.insert(entry.key.clone()) {
+                    result.push(entry);
+                }
+            }
+        }
+
+        // Add global entries that aren't overridden
+        for entry in entries.drain(..) {
+            if seen_keys.insert(entry.key.clone()) {
+                result.push(entry);
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Clean up session-scoped pins when a session is closed
+    pub fn cleanup_session_pins(&self, session_id: &str) -> Result<usize, String> {
+        let count = self.conn.execute(
+            "DELETE FROM context_pins WHERE session_id = ?1",
+            params![session_id],
+        ).map_err(|e| e.to_string())?;
+        Ok(count)
+    }
+
+    /// Fork context pins from one session (and its project) to a new session
+    pub fn fork_context_pins(
+        &self, source_session_id: &str, target_session_id: &str,
+    ) -> Result<usize, String> {
+        // Copy session-scoped pins from source to target session
+        let count = self.conn.execute(
+            "INSERT INTO context_pins (session_id, project_id, kind, target, label, priority)
+             SELECT ?2, project_id, kind, target, label, priority
+             FROM context_pins WHERE session_id = ?1",
+            params![source_session_id, target_session_id],
+        ).map_err(|e| e.to_string())?;
+        Ok(count)
+    }
+
+    /// Save .hermes/context.json config for a realm
+    pub fn save_hermes_config(&self, realm_id: &str, config_json: &str, config_hash: &str) -> Result<(), String> {
+        self.conn.execute(
+            "INSERT INTO hermes_project_config (realm_id, config_json, config_hash, loaded_at)
+             VALUES (?1, ?2, ?3, datetime('now'))
+             ON CONFLICT(realm_id) DO UPDATE SET
+                config_json = excluded.config_json,
+                config_hash = excluded.config_hash,
+                loaded_at = datetime('now')",
+            params![realm_id, config_json, config_hash],
+        ).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Get .hermes/context.json config for a realm
+    pub fn get_hermes_config(&self, realm_id: &str) -> Result<Option<(String, Option<String>)>, String> {
+        let mut stmt = self.conn.prepare(
+            "SELECT config_json, config_hash FROM hermes_project_config WHERE realm_id = ?1"
+        ).map_err(|e| e.to_string())?;
+        let result = stmt.query_row(params![realm_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+        }).ok();
+        Ok(result)
     }
 
     // ─── Context Snapshots ───────────────────────────────────────

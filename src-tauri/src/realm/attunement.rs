@@ -1,9 +1,88 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
 use crate::AppState;
+
+// ─── .hermes/context.json Schema ─────────────────────────────────────
+
+/// .hermes/context.json schema for project-level defaults
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct HermesProjectConfig {
+    /// Default files to pin for this project
+    #[serde(default)]
+    pub pins: Vec<HermesPin>,
+    /// Project-level memory facts (key-value)
+    #[serde(default)]
+    pub memory: Vec<HermesMemory>,
+    /// Human-authored conventions that override auto-detected
+    #[serde(default)]
+    pub conventions: Vec<String>,
+    /// Token budget override (default 4000)
+    #[serde(default)]
+    pub token_budget: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HermesPin {
+    pub kind: String,
+    pub target: String,
+    #[serde(default)]
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HermesMemory {
+    pub key: String,
+    pub value: String,
+}
+
+/// Load .hermes/context.json from a project directory
+pub fn load_hermes_config(project_path: &str) -> Option<HermesProjectConfig> {
+    let config_path = Path::new(project_path).join(".hermes").join("context.json");
+    if !config_path.exists() {
+        return None;
+    }
+    match std::fs::read_to_string(&config_path) {
+        Ok(content) => serde_json::from_str(&content).ok(),
+        Err(_) => None,
+    }
+}
+
+// ─── File Content for Pins ───────────────────────────────────────────
+
+/// Read file content for a pinned file, respecting a per-file byte limit
+fn read_pin_file_content(target: &str, max_bytes: usize) -> Option<String> {
+    let path = Path::new(target);
+    if !path.exists() || !path.is_file() {
+        return None;
+    }
+    // Skip binary files
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let binary_exts = ["png", "jpg", "jpeg", "gif", "ico", "woff", "woff2", "ttf", "eot",
+                        "zip", "tar", "gz", "bz2", "7z", "exe", "dll", "so", "dylib",
+                        "pdf", "mp3", "mp4", "wav", "avi", "mov", "sqlite", "db"];
+    if binary_exts.contains(&ext.to_lowercase().as_str()) {
+        return None;
+    }
+    match std::fs::read_to_string(path) {
+        Ok(content) => {
+            if content.len() > max_bytes {
+                let mut end = max_bytes;
+                while end < content.len() && !content.is_char_boundary(end) {
+                    end += 1;
+                }
+                Some(format!("{}...\n[truncated at {} bytes]", &content[..end.min(content.len())], max_bytes))
+            } else {
+                Some(content)
+            }
+        }
+        Err(_) => None,
+    }
+}
+
+// ─── Context Assembly Types ──────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApplyContextResult {
@@ -13,6 +92,7 @@ pub struct ApplyContextResult {
     pub nudge_sent: bool,
     pub nudge_error: Option<String>,
     pub estimated_tokens: usize,
+    pub token_budget: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,6 +113,12 @@ pub struct PinContext {
     pub kind: String,
     pub target: String,
     pub label: Option<String>,
+    /// File content (populated for kind="file" when the file is readable)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    /// Whether this is a project-level pin (shared across sessions)
+    #[serde(default)]
+    pub is_project_pin: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,7 +126,12 @@ pub struct MemoryContext {
     pub key: String,
     pub value: String,
     pub source: String,
+    /// Memory scope: "global", "project", or "session"
+    #[serde(default = "default_scope")]
+    pub scope: String,
 }
+
+fn default_scope() -> String { "global".to_string() }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ErrorContext {
@@ -59,16 +150,18 @@ pub struct SessionContext {
     pub combined_languages: Vec<String>,
     pub combined_frameworks: Vec<String>,
     pub estimated_tokens: usize,
+    pub token_budget: usize,
     pub context_version: i64,
 }
 
 /// Assemble a context blob for a session's attached realms.
-/// Now includes pins, memory facts, and error resolutions.
+/// Includes: realm info, pins (with file content), memory (project + global),
+/// error resolutions, and .hermes/context.json overrides.
 /// Token-aware: estimates tokens per section, trims to budget.
 pub fn assemble_context(
     db: &crate::db::Database,
     session_id: &str,
-    token_budget: usize,
+    default_token_budget: usize,
 ) -> Result<SessionContext, String> {
     let realms = db.get_session_realms(session_id)?;
 
@@ -77,15 +170,36 @@ pub fn assemble_context(
     let mut all_languages = Vec::new();
     let mut all_frameworks = Vec::new();
     let mut estimated_tokens: usize = 0;
+    let mut hermes_configs: Vec<HermesProjectConfig> = Vec::new();
+
+    // Determine token budget (may be overridden by .hermes/context.json)
+    let mut token_budget = default_token_budget;
 
     for realm in &realms {
+        // Load .hermes/context.json if present
+        if let Some(config) = load_hermes_config(&realm.path) {
+            if let Some(budget) = config.token_budget {
+                token_budget = budget;
+            }
+            hermes_configs.push(config);
+        }
+
         // Get conventions from the dedicated table (higher fidelity)
         let db_conventions = db.get_conventions(&realm.id)?;
-        let conv_rules: Vec<String> = if !db_conventions.is_empty() {
+        let mut conv_rules: Vec<String> = if !db_conventions.is_empty() {
             db_conventions.iter().map(|c| c.rule.clone()).collect()
         } else {
             realm.conventions.iter().map(|c| c.rule.clone()).collect()
         };
+
+        // Merge .hermes conventions (human-authored take priority)
+        for config in &hermes_configs {
+            for conv in &config.conventions {
+                if !conv_rules.contains(conv) {
+                    conv_rules.insert(0, conv.clone()); // prepend (higher priority)
+                }
+            }
+        }
 
         let arch_pattern = realm.architecture.as_ref().map(|a| a.pattern.clone());
         let arch_layers = realm.architecture.as_ref()
@@ -137,7 +251,6 @@ pub fn assemble_context(
 
     // Trim if over budget — remove conventions from least-important realms first
     if estimated_tokens > token_budget && realm_contexts.len() > 1 {
-        // Keep first realm (primary) intact, trim secondary realms' conventions
         for ctx in realm_contexts.iter_mut().skip(1) {
             let conv_tokens: usize = ctx.conventions.iter().map(|c| c.len() / 4 + 1).sum();
             if estimated_tokens - conv_tokens < token_budget {
@@ -151,22 +264,76 @@ pub fn assemble_context(
         }
     }
 
-    // Fetch context pins for this session
-    let pins_raw = db.get_context_pins(Some(session_id), None).unwrap_or_default();
-    let pins: Vec<PinContext> = pins_raw.iter().map(|p| PinContext {
-        kind: p.kind.clone(),
-        target: p.target.clone(),
-        label: p.label.clone(),
-    }).collect();
-    estimated_tokens += pins.iter().map(|p| p.target.len() / 4 + 5).sum::<usize>();
+    // Fetch context pins — session-scoped + project-scoped (shared across sessions)
+    let realm_ids: Vec<String> = realms.iter().map(|r| r.id.clone()).collect();
+    let primary_realm_id = realm_ids.first().cloned();
 
-    // Fetch persisted memory
-    let memory_raw = db.get_all_memory_entries("global", "global").unwrap_or_default();
-    let memory: Vec<MemoryContext> = memory_raw.iter().map(|m| MemoryContext {
+    let mut pins_raw = db.get_context_pins(Some(session_id), primary_realm_id.as_deref()).unwrap_or_default();
+
+    // Add pins from .hermes/context.json (project defaults)
+    for config in &hermes_configs {
+        for hermes_pin in &config.pins {
+            // Avoid duplicates
+            if !pins_raw.iter().any(|p| p.target == hermes_pin.target && p.kind == hermes_pin.kind) {
+                pins_raw.push(crate::db::ContextPin {
+                    id: 0, // synthetic
+                    session_id: None,
+                    project_id: primary_realm_id.clone(),
+                    kind: hermes_pin.kind.clone(),
+                    target: hermes_pin.target.clone(),
+                    label: hermes_pin.label.clone(),
+                    priority: 256, // higher than default
+                    created_at: 0,
+                });
+            }
+        }
+    }
+
+    // Build pin contexts with file content
+    let per_file_budget = 8192; // ~2k tokens per file
+    let mut pins: Vec<PinContext> = Vec::new();
+    for p in &pins_raw {
+        let content = if p.kind == "file" {
+            read_pin_file_content(&p.target, per_file_budget)
+        } else {
+            None
+        };
+        let content_tokens = content.as_ref().map(|c| c.len() / 4).unwrap_or(0);
+        estimated_tokens += p.target.len() / 4 + 5 + content_tokens;
+
+        pins.push(PinContext {
+            kind: p.kind.clone(),
+            target: p.target.clone(),
+            label: p.label.clone(),
+            content,
+            is_project_pin: p.session_id.is_none(),
+        });
+    }
+
+    // Fetch merged memory: project-scoped → global (project takes precedence)
+    let memory_raw = db.get_merged_memory(&realm_ids).unwrap_or_default();
+    let mut memory: Vec<MemoryContext> = memory_raw.iter().map(|m| MemoryContext {
         key: m.key.clone(),
         value: m.value.clone(),
         source: m.source.clone(),
+        scope: m.scope.clone(),
     }).collect();
+
+    // Add memory from .hermes/context.json
+    let mut seen_memory_keys: std::collections::HashSet<String> = memory.iter().map(|m| m.key.clone()).collect();
+    for config in &hermes_configs {
+        for hm in &config.memory {
+            if seen_memory_keys.insert(hm.key.clone()) {
+                memory.push(MemoryContext {
+                    key: hm.key.clone(),
+                    value: hm.value.clone(),
+                    source: "hermes-config".to_string(),
+                    scope: "project".to_string(),
+                });
+            }
+        }
+    }
+
     estimated_tokens += memory.iter().map(|m| (m.key.len() + m.value.len()) / 4 + 3).sum::<usize>();
 
     // Fetch error resolutions
@@ -191,6 +358,7 @@ pub fn assemble_context(
         combined_languages: all_languages,
         combined_frameworks: all_frameworks,
         estimated_tokens,
+        token_budget,
         context_version,
     })
 }
@@ -213,9 +381,12 @@ fn format_context_markdown(context: &SessionContext, execution_mode: Option<&str
         md.push_str(&format!("- Mode: {}\n", mode));
     }
 
+    // Token budget info
+    md.push_str(&format!("- Token budget: ~{} / {} used\n", context.estimated_tokens, context.token_budget));
+
     // Projects
     if !context.realms.is_empty() {
-        md.push_str("## Projects\n\n");
+        md.push_str("\n## Projects\n\n");
         for realm in &context.realms {
             md.push_str(&format!("### {} ({})\n", realm.realm_name, realm.path));
             if !realm.languages.is_empty() {
@@ -234,12 +405,16 @@ fn format_context_markdown(context: &SessionContext, execution_mode: Option<&str
         }
     }
 
-    // Pinned Context
+    // Pinned Context (with file content)
     if !context.pins.is_empty() {
         md.push_str("## Pinned Context\n\n");
         for pin in &context.pins {
             let label = pin.label.as_deref().unwrap_or(&pin.target);
-            md.push_str(&format!("- [{}] {}\n", pin.kind, label));
+            let scope_tag = if pin.is_project_pin { " (project)" } else { "" };
+            md.push_str(&format!("- [{}] {}{}\n", pin.kind, label, scope_tag));
+            if let Some(ref content) = pin.content {
+                md.push_str(&format!("\n```\n{}\n```\n\n", content));
+            }
         }
         md.push('\n');
     }
@@ -277,8 +452,6 @@ fn format_context_markdown(context: &SessionContext, execution_mode: Option<&str
 }
 
 /// Assemble context and write it atomically to disk.
-/// If the session has no realms attached and no pins/memory, deletes the context file.
-/// Returns the path to the context file.
 pub fn write_session_context_file(
     app: &AppHandle,
     db: &crate::db::Database,
@@ -293,12 +466,10 @@ pub fn write_session_context_file(
         || !context.error_resolutions.is_empty();
 
     if !has_content {
-        // Nothing to write — remove the file if it exists
         let _ = std::fs::remove_file(&path);
         return Ok(path);
     }
 
-    // Ensure parent directory exists
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create context dir: {}", e))?;
@@ -306,7 +477,6 @@ pub fn write_session_context_file(
 
     let markdown = format_context_markdown(&context, None);
 
-    // Atomic write: write to .tmp then rename
     let tmp_path = path.with_extension("md.tmp");
     std::fs::write(&tmp_path, markdown.as_bytes())
         .map_err(|e| format!("Failed to write context tmp file: {}", e))?;
@@ -354,6 +524,7 @@ pub fn apply_context(
     // 3. Format markdown with execution mode
     let markdown = format_context_markdown(&context, execution_mode.as_deref());
     let estimated_tokens = context.estimated_tokens;
+    let budget = context.token_budget;
 
     // 4. Write file atomically
     let path = session_context_path(&app, &session_id)?;
@@ -387,5 +558,79 @@ pub fn apply_context(
         nudge_sent,
         nudge_error,
         estimated_tokens,
+        token_budget: budget,
     })
+}
+
+/// Fork context from one session to another (called during session creation)
+#[tauri::command]
+pub fn fork_session_context(
+    state: State<'_, AppState>,
+    source_session_id: String,
+    target_session_id: String,
+) -> Result<usize, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.fork_context_pins(&source_session_id, &target_session_id)
+}
+
+/// Load and apply .hermes/context.json for a realm, creating project-scoped
+/// pins and memory entries in the database.
+#[tauri::command]
+pub fn load_hermes_project_config(
+    state: State<'_, AppState>,
+    realm_id: String,
+    realm_path: String,
+) -> Result<Option<HermesProjectConfig>, String> {
+    let config = match load_hermes_config(&realm_path) {
+        Some(c) => c,
+        None => return Ok(None),
+    };
+
+    let config_json = serde_json::to_string(&config).unwrap_or_default();
+    let config_hash = format!("{:x}", md5_simple(&config_json));
+
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+
+    // Check if config has changed since last load
+    if let Ok(Some((_, Some(existing_hash)))) = db.get_hermes_config(&realm_id) {
+        if existing_hash == config_hash {
+            return Ok(Some(config));
+        }
+    }
+
+    // Apply pins as project-scoped
+    for pin in &config.pins {
+        let _ = db.add_context_pin(
+            None, // session_id = null → project-scoped
+            Some(&realm_id),
+            &pin.kind,
+            &pin.target,
+            pin.label.as_deref(),
+            Some(256), // higher priority for project defaults
+        );
+    }
+
+    // Apply memory as project-scoped
+    for mem in &config.memory {
+        let _ = db.save_memory_entry(
+            "project", &realm_id,
+            &mem.key, &mem.value,
+            "hermes-config", "config", 1.0,
+        );
+    }
+
+    // Save config hash
+    let _ = db.save_hermes_config(&realm_id, &config_json, &config_hash);
+
+    Ok(Some(config))
+}
+
+/// Simple hash function for config change detection
+fn md5_simple(input: &str) -> u64 {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in input.bytes() {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
 }

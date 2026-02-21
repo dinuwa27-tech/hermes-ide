@@ -42,6 +42,6 @@ export function detectProject(path: string): Promise<void> {
   return invoke("detect_project", { path });
 }
 
-export function assembleSessionContext(sessionId: string, tokenBudget: number): Promise<{ realms: RealmContextInfo[] }> {
-  return invoke<{ realms: RealmContextInfo[] }>("assemble_session_context", { sessionId, tokenBudget });
+export function assembleSessionContext(sessionId: string, tokenBudget: number): Promise<{ realms: RealmContextInfo[]; estimated_tokens: number; token_budget: number }> {
+  return invoke<{ realms: RealmContextInfo[]; estimated_tokens: number; token_budget: number }>("assemble_session_context", { sessionId, tokenBudget });
 }

@@ -1583,6 +1583,14 @@ impl PtyManager {
 
         let nudge_msg = match provider_name.to_lowercase().as_str() {
             "aider" => format!("/read {}\r", file_path),
+            "claude" | "claude-code" | "anthropic" => format!(
+                "Read the file at {} — it contains updated project context (v{}).\r",
+                file_path, version
+            ),
+            "copilot" | "github-copilot" => format!(
+                "@workspace Context updated to v{}. The context file is at {}.\r",
+                version, file_path
+            ),
             _ => format!(
                 "Context updated to v{}. Read the file at $HERMES_CONTEXT for project context.\r",
                 version
@@ -2112,6 +2120,11 @@ pub fn close_session(app: AppHandle, state: State<'_, AppState>, session_id: Str
 
         // Clean up context file
         crate::realm::attunement::delete_session_context_file(&app, &session_id);
+
+        // Clean up session-scoped pins (project-scoped pins survive)
+        if let Ok(db) = state.db.lock() {
+            let _ = db.cleanup_session_pins(&session_id);
+        }
     }
 
     Ok(())

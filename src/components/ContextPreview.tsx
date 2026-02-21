@@ -19,6 +19,10 @@ export function ContextPreview({ manager }: ContextPreviewProps) {
   const isDirty = manager.lifecycle === 'dirty' || manager.lifecycle === 'apply_failed';
   const hasInjected = manager.injectedContent !== null;
 
+  const budgetPercent = manager.tokenBudget > 0
+    ? Math.min(100, Math.round((manager.estimatedTokens / manager.tokenBudget) * 100))
+    : 0;
+
   const handleCopy = useCallback(async () => {
     await navigator.clipboard.writeText(displayContent);
     setCopied(true);
@@ -62,6 +66,7 @@ export function ContextPreview({ manager }: ContextPreviewProps) {
           <pre className="ctx-preview-content">{displayContent}</pre>
           <div className="ctx-preview-charcount">
             {charCount.toLocaleString()} chars (~{tokenEstimate.toLocaleString()} tokens)
+            {manager.tokenBudget > 0 && ` | ${budgetPercent}% of ${manager.tokenBudget.toLocaleString()} budget`}
             {showInjected && " (injected)"}
           </div>
         </div>

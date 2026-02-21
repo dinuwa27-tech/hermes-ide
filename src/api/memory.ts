@@ -20,3 +20,21 @@ export function getAllMemory(scope: string, scopeId: string): Promise<PersistedM
 export function deleteMemory(scope: string, scopeId: string, key: string): Promise<void> {
   return invoke("delete_memory", { scope, scopeId, key });
 }
+
+/** Save memory at project scope for a given realm */
+export function saveProjectMemory(realmId: string, key: string, value: string, source: string = "user"): Promise<void> {
+  return saveMemory({
+    scope: "project",
+    scopeId: realmId,
+    key,
+    value,
+    source,
+    category: "general",
+    confidence: 1.0,
+  });
+}
+
+/** Get project-scoped memory for a given realm */
+export function getProjectMemory(realmId: string): Promise<PersistedMemory[]> {
+  return getAllMemory("project", realmId);
+}

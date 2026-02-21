@@ -285,9 +285,16 @@ export function ContextPanel({ session }: ContextPanelProps) {
   const [showPinAdd, setShowPinAdd] = useState(false);
   const [pinKind, setPinKind] = useState<string>("file");
   const [pinTarget, setPinTarget] = useState("");
+  const [pinScope, setPinScope] = useState<"project" | "session">("project");
+  const [memoryScopeInput, setMemoryScopeInput] = useState<"project" | "global">("project");
   const [correlations, setCorrelations] = useState<Record<string, ErrorCorrelation[]>>({});
   const [copyDone, setCopyDone] = useState(false);
   const [expandedErrors, setExpandedErrors] = useState<Set<number>>(new Set());
+
+  // Derive primary realm id for project-scoped operations
+  const primaryRealmId = contextManager.context.realms.length > 0
+    ? contextManager.context.realms[0].realm_id
+    : null;
 
   // Pins come from contextManager (single source of truth via backend events)
   const pins = contextManager.context.pinnedItems;
@@ -300,12 +307,23 @@ export function ContextPanel({ session }: ContextPanelProps) {
     setTimeout(() => setCopyDone(false), 2000);
   }, [contextManager.copyToClipboard]);
 
-  // Load persisted memory on mount and when session changes
+  // Load persisted memory on mount and when session/realm changes
   useEffect(() => {
-    getAllMemory("global", "global")
-      .then((entries) => setPersistedMemory(entries))
-      .catch((err) => console.warn("[ContextPanel] Failed to load persisted memory:", err));
-  }, [session.id]);
+    const loadMemory = async () => {
+      try {
+        const globalEntries = await getAllMemory("global", "global");
+        if (primaryRealmId) {
+          const projectEntries = await getAllMemory("project", primaryRealmId);
+          setPersistedMemory([...projectEntries, ...globalEntries]);
+        } else {
+          setPersistedMemory(globalEntries);
+        }
+      } catch (err) {
+        console.warn("[ContextPanel] Failed to load persisted memory:", err);
+      }
+    };
+    loadMemory();
+  }, [session.id, primaryRealmId]);
 
   // Listen for error-matched events
   useEffect(() => {
@@ -339,8 +357,10 @@ export function ContextPanel({ session }: ContextPanelProps) {
   const addPin = useCallback(async () => {
     if (!pinTarget.trim()) return;
     try {
+      const isProject = pinScope === "project" && primaryRealmId;
       await addContextPin({
-        sessionId: session.id, projectId: null,
+        sessionId: isProject ? null : session.id,
+        projectId: isProject ? primaryRealmId : null,
         kind: pinKind, target: pinTarget.trim(), label: null, priority: null,
       });
       setPinTarget("");
@@ -348,7 +368,7 @@ export function ContextPanel({ session }: ContextPanelProps) {
     } catch (err) {
       console.warn("[ContextPanel] Failed to add pin:", err);
     }
-  }, [session.id, pinKind, pinTarget]);
+  }, [session.id, pinKind, pinTarget, pinScope, primaryRealmId]);
 
   const browseAndPinFile = useCallback(async () => {
     try {
@@ -358,8 +378,10 @@ export function ContextPanel({ session }: ContextPanelProps) {
         defaultPath: session.working_directory,
       });
       if (selected) {
+        const isProject = pinScope === "project" && primaryRealmId;
         await addContextPin({
-          sessionId: session.id, projectId: null,
+          sessionId: isProject ? null : session.id,
+          projectId: isProject ? primaryRealmId : null,
           kind: "file", target: selected, label: null, priority: null,
         });
         setShowPinAdd(false);
@@ -367,7 +389,7 @@ export function ContextPanel({ session }: ContextPanelProps) {
     } catch (err) {
       console.warn("[ContextPanel] Failed to browse/pin file:", err);
     }
-  }, [session.id, session.working_directory]);
+  }, [session.id, session.working_directory, pinScope, primaryRealmId]);
 
   const removePin = useCallback(async (id: number) => {
     try {
@@ -380,20 +402,25 @@ export function ContextPanel({ session }: ContextPanelProps) {
 
   const pinFile = useCallback(async (filePath: string) => {
     try {
+      // Files pinned from the file tree default to project scope
+      const isProject = primaryRealmId != null;
       await addContextPin({
-        sessionId: session.id, projectId: null,
+        sessionId: isProject ? null : session.id,
+        projectId: isProject ? primaryRealmId : null,
         kind: "file", target: filePath, label: null, priority: null,
       });
       // State update handled by context-pins-changed event → useContextState
     } catch (err) {
       console.warn("[ContextPanel] Failed to pin file:", err);
     }
-  }, [session.id]);
+  }, [session.id, primaryRealmId]);
 
   const pinMemory = useCallback(async (key: string, value: string) => {
     try {
+      const isProject = primaryRealmId != null;
       await addContextPin({
-        sessionId: session.id, projectId: null,
+        sessionId: isProject ? null : session.id,
+        projectId: isProject ? primaryRealmId : null,
         kind: "memory", target: `${key}=${value}`, label: key, priority: null,
       });
       // State update handled by context-pins-changed event → useContextState
@@ -405,9 +432,10 @@ export function ContextPanel({ session }: ContextPanelProps) {
   const addMemoryFact = useCallback(async () => {
     if (!memoryKeyInput.trim() || !memoryValueInput.trim()) return;
     try {
+      const isProject = memoryScopeInput === "project" && primaryRealmId;
       await saveMemory({
-        scope: "global",
-        scopeId: "global",
+        scope: isProject ? "project" : "global",
+        scopeId: isProject ? primaryRealmId! : "global",
         key: memoryKeyInput.trim(),
         value: memoryValueInput.trim(),
         source: "user",
@@ -417,21 +445,31 @@ export function ContextPanel({ session }: ContextPanelProps) {
       setMemoryKeyInput("");
       setMemoryValueInput("");
       setShowMemoryAdd(false);
-      const entries = await getAllMemory("global", "global");
-      setPersistedMemory(entries);
+      // Reload both project and global memory
+      const globalEntries = await getAllMemory("global", "global");
+      if (primaryRealmId) {
+        const projectEntries = await getAllMemory("project", primaryRealmId);
+        setPersistedMemory([...projectEntries, ...globalEntries]);
+      } else {
+        setPersistedMemory(globalEntries);
+      }
     } catch (err) {
       console.warn("[ContextPanel] Failed to save memory:", err);
     }
-  }, [memoryKeyInput, memoryValueInput]);
+  }, [memoryKeyInput, memoryValueInput, memoryScopeInput, primaryRealmId]);
 
   const deleteMemoryFact = useCallback(async (key: string) => {
     try {
-      await deleteMemory("global", "global", key);
+      // Find the entry to determine its scope
+      const entry = persistedMemory.find((m) => m.key === key);
+      const scope = entry?.scope ?? "global";
+      const scopeId = entry?.scope_id ?? "global";
+      await deleteMemory(scope, scopeId, key);
       setPersistedMemory((prev) => prev.filter((m) => m.key !== key));
     } catch (err) {
       console.warn("[ContextPanel] Failed to delete memory:", err);
     }
-  }, []);
+  }, [persistedMemory]);
 
   const addWorkspacePath = useCallback(async () => {
     if (!workspaceInput.trim()) return;
@@ -579,16 +617,26 @@ export function ContextPanel({ session }: ContextPanelProps) {
               <div key={pin.id} className="ctx-pin-row">
                 <span className={`ctx-pin-badge ctx-pin-${pin.kind}`}>{pin.kind}</span>
                 <span className="ctx-pin-target mono truncate">{pin.label || pin.target}</span>
+                <span className={`ctx-pin-scope-badge ${pin.session_id === null ? "ctx-pin-scope-project" : "ctx-pin-scope-session"}`}>
+                  {pin.session_id === null ? "project" : "session"}
+                </span>
                 <button className="ctx-memory-delete" onClick={() => removePin(pin.id)} title="Unpin">&times;</button>
               </div>
             ))}
             {showPinAdd && (
               <div className="ctx-memory-add-form">
-                <select className="ctx-pin-select" value={pinKind} onChange={(e) => setPinKind(e.target.value)}>
-                  <option value="file">File</option>
-                  <option value="memory">Memory</option>
-                  <option value="text">Text</option>
-                </select>
+                <div className="ctx-pin-form-row">
+                  <select className="ctx-pin-select" value={pinKind} onChange={(e) => setPinKind(e.target.value)}>
+                    <option value="file">File</option>
+                    <option value="directory">Directory</option>
+                    <option value="memory">Memory</option>
+                    <option value="text">Text</option>
+                  </select>
+                  <select className="ctx-pin-scope-select" value={pinScope} onChange={(e) => setPinScope(e.target.value as "project" | "session")}>
+                    <option value="project">Project</option>
+                    <option value="session">Session only</option>
+                  </select>
+                </div>
                 {pinKind === "file" ? (
                   <div className="ctx-pin-file-row">
                     <input
@@ -732,6 +780,9 @@ export function ContextPanel({ session }: ContextPanelProps) {
                 <div key={m.key} className="ctx-memory-row">
                   <span className="ctx-memory-key">{m.key}</span>
                   <span className="ctx-memory-value mono">{m.value}</span>
+                  <span className={`ctx-pin-scope-badge ${m.scope === "project" ? "ctx-pin-scope-project" : "ctx-pin-scope-global"}`}>
+                    {m.scope === "project" ? "project" : "global"}
+                  </span>
                   <button className="ctx-memory-delete" onClick={() => deleteMemoryFact(m.key)} title="Delete">&times;</button>
                 </div>
               ))}
@@ -740,6 +791,10 @@ export function ContextPanel({ session }: ContextPanelProps) {
                   <input className="ctx-memory-input" placeholder="Key (e.g. db_host)" value={memoryKeyInput} onChange={(e) => setMemoryKeyInput(e.target.value)} />
                   <input className="ctx-memory-input" placeholder="Value" value={memoryValueInput} onChange={(e) => setMemoryValueInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") addMemoryFact(); }} />
                   <div className="ctx-memory-add-actions">
+                    <select className="ctx-pin-scope-select" value={memoryScopeInput} onChange={(e) => setMemoryScopeInput(e.target.value as "project" | "global")}>
+                      <option value="project">Project</option>
+                      <option value="global">Global</option>
+                    </select>
                     <button className="ctx-memory-save-btn" onClick={addMemoryFact}>Save</button>
                     <button className="ctx-memory-cancel-btn" onClick={() => setShowMemoryAdd(false)}>Cancel</button>
                   </div>

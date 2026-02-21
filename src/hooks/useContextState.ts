@@ -63,7 +63,8 @@ export function formatContextMarkdown(ctx: ContextState, version: number, execut
   if (ctx.pinnedItems.length > 0) {
     lines.push("## Pinned Context");
     for (const pin of ctx.pinnedItems) {
-      lines.push(`- [${pin.kind}] ${pin.label || pin.target}`);
+      const scope = pin.session_id === null ? " (project)" : "";
+      lines.push(`- [${pin.kind}] ${pin.label || pin.target}${scope}`);
     }
     lines.push("");
   }
@@ -121,6 +122,8 @@ export function useContextState(session: SessionData | null, executionMode?: str
   const [lifecycle, setLifecycle] = useState<ContextLifecycleState>('clean');
   const [lastError, setLastError] = useState<string | null>(null);
   const [injectedContent, setInjectedContent] = useState<string | null>(null);
+  const [tokenBudget, setTokenBudget] = useState(4000);
+  const [estimatedTokens, setEstimatedTokens] = useState(0);
 
   const prevContextJson = useRef<string>("");
   const versionRef = useRef(0);
@@ -145,7 +148,7 @@ export function useContextState(session: SessionData | null, executionMode?: str
       initial.filesTouched = session.metrics.files_touched;
       initial.recentErrors = session.metrics.recent_errors;
 
-      // Fetch pins
+      // Fetch pins (session + project-scoped)
       try {
         initial.pinnedItems = await getContextPins(session.id, null);
       } catch (err) { console.warn("[useContextState] Failed to load pins:", err); }
@@ -158,13 +161,15 @@ export function useContextState(session: SessionData | null, executionMode?: str
           .map((p) => ({ fingerprint: p.fingerprint, resolution: p.resolution!, occurrence_count: p.occurrence_count }));
       } catch (err) { console.warn("[useContextState] Failed to load error resolutions:", err); }
 
-      // Fetch realm context
+      // Fetch realm context (includes token budget and estimated tokens)
       try {
         const ctx = await assembleSessionContext(session.id, 4000);
         initial.realms = ctx.realms;
+        if (ctx.token_budget) setTokenBudget(ctx.token_budget);
+        if (ctx.estimated_tokens) setEstimatedTokens(ctx.estimated_tokens);
       } catch (err) { console.warn("[useContextState] Failed to assemble session context:", err); }
 
-      // Fetch persisted memory
+      // Fetch persisted memory (global + project-scoped via backend merge)
       try {
         const entries = await getAllMemory("global", "global");
         initial.persistedMemory = entries;
@@ -225,7 +230,11 @@ export function useContextState(session: SessionData | null, executionMode?: str
       if (cancelled) return;
       assembleSessionContext(session.id, 4000)
         .then((ctx) => {
-          if (!cancelled) setContext((prev) => ({ ...prev, realms: ctx.realms }));
+          if (!cancelled) {
+            setContext((prev) => ({ ...prev, realms: ctx.realms }));
+            if (ctx.token_budget) setTokenBudget(ctx.token_budget);
+            if (ctx.estimated_tokens) setEstimatedTokens(ctx.estimated_tokens);
+          }
         })
         .catch((err) => console.warn("[useContextState] Failed to refresh realms:", err));
     }).then((u) => {
@@ -288,6 +297,8 @@ export function useContextState(session: SessionData | null, executionMode?: str
       setInjectedVersion(result.version);
       setInjectedContent(result.content);
       setLastInjectedAt(Date.now());
+      setTokenBudget(result.token_budget);
+      setEstimatedTokens(result.estimated_tokens);
 
       // Sync currentVersion to match backend version
       versionRef.current = result.version;
@@ -324,6 +335,8 @@ export function useContextState(session: SessionData | null, executionMode?: str
     lifecycle,
     lastError,
     injectedContent,
+    tokenBudget,
+    estimatedTokens,
     applyContext,
     formatContext: formatContextPreview,
     copyToClipboard,
