@@ -1,4 +1,4 @@
-# HERMES-IDEA
+# HERMES-IDE
 
 [![Tauri](https://img.shields.io/badge/Tauri-2.x-FFC131?logo=tauri&logoColor=white)](https://tauri.app)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)](https://react.dev)
@@ -9,7 +9,7 @@
 
 > An AI-native terminal for macOS that understands your projects, predicts your commands, and executes autonomously.
 
-HERMES-IDEA is a desktop terminal emulator that deeply integrates AI assistance into command-line workflows. It scans your projects to build context ("Realms"), suggests commands in real time, tracks errors and resolutions, and can execute tasks autonomously — all without leaving the terminal.
+HERMES-IDE is a desktop terminal emulator that deeply integrates AI assistance into command-line workflows. It scans your projects to build context ("Realms"), suggests commands in real time, tracks errors and resolutions, and can execute tasks autonomously — all without leaving the terminal.
 
 ---
 
@@ -56,7 +56,7 @@ HERMES-IDEA is a desktop terminal emulator that deeply integrates AI assistance 
 
 ## Architecture
 
-HERMES-IDEA is a [Tauri 2](https://tauri.app) application with a clear frontend/backend split:
+HERMES-IDE is a [Tauri 2](https://tauri.app) application with a clear frontend/backend split:
 
 ```
 ┌──────────────────────────────────┐
@@ -88,7 +88,7 @@ Before you begin, make sure you have the following installed:
 | [Rust](https://rustup.rs) | 1.70+ | Backend compilation |
 | [Tauri CLI prerequisites](https://v2.tauri.app/start/prerequisites/) | — | System dependencies for Tauri |
 
-> **Note:** HERMES-IDEA targets **macOS 13 (Ventura)** or later.
+> **Note:** HERMES-IDE targets **macOS 13 (Ventura)** or later.
 
 Verify your setup:
 
@@ -105,8 +105,8 @@ cargo --version
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/your-username/hermes-idea.git
-cd hermes-idea
+git clone https://github.com/gabrielanhaia/hermes-ide.git
+cd hermes-ide
 ```
 
 ### 2. Install frontend dependencies
@@ -137,14 +137,14 @@ The compiled `.app` bundle will be output to `src-tauri/target/release/bundle/`.
 
 ### Creating a session
 
-When you first launch HERMES-IDEA, you'll see an empty state with recent sessions (if any). Press **Cmd+T** to create a new terminal session, or use the session creator to pick a shell and attach a Realm.
+When you first launch HERMES-IDE, you'll see an empty state with recent sessions (if any). Press **Cmd+T** to create a new terminal session, or use the session creator to pick a shell and attach a Realm.
 
 ### Working with Realms
 
 Realms represent scanned project directories. To set up a Realm:
 
 1. Press **Cmd+R** to open the Realm Picker
-2. Select a directory — HERMES-IDEA scans it to detect languages, frameworks, and conventions
+2. Select a directory — HERMES-IDE scans it to detect languages, frameworks, and conventions
 3. The Realm context is now available to AI features in that session
 
 ### AI Suggestions
@@ -221,7 +221,7 @@ Open Settings with **Cmd+,** to configure:
 
 ### Data Storage
 
-HERMES-IDEA stores session data, memories, error patterns, and cost history in a local **SQLite** database managed by the Rust backend. Data is stored in the Tauri application data directory:
+HERMES-IDE stores session data, memories, error patterns, and cost history in a local **SQLite** database managed by the Rust backend. Data is stored in the Tauri application data directory:
 
 ```
 ~/Library/Application Support/com.hermes-idea.terminal/
@@ -232,7 +232,7 @@ HERMES-IDEA stores session data, memories, error patterns, and cost history in a
 ## Project Structure
 
 ```
-hermes-idea/
+hermes-ide/
 ├── src/                        # React/TypeScript frontend
 │   ├── api/                    # Tauri IPC command wrappers
 │   ├── components/             # UI components (29+)
