@@ -234,6 +234,43 @@ function DomainSection({ sessionId }: { sessionId: string }) {
   );
 }
 
+function WorkspaceCompact({ cwd, extraPaths, workspaceInput, setWorkspaceInput, onAddPath }: {
+  cwd: string; extraPaths: string[];
+  workspaceInput: string; setWorkspaceInput: (v: string) => void; onAddPath: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const basename = cwd.split("/").pop() || cwd;
+
+  return (
+    <div className="ctx-section">
+      <div className="ctx-section-title">Workspace</div>
+      <div className="ctx-workspace-compact" onClick={() => setExpanded(!expanded)} title={cwd}>
+        <span className="mono">{basename}</span>
+        {extraPaths.length > 0 && (
+          <span className="ctx-workspace-expand-badge">+{extraPaths.length}</span>
+        )}
+      </div>
+      {expanded && (
+        <>
+          <div className="ctx-workspace-path mono" style={{ fontSize: "var(--text-sm)", color: "var(--text-3)" }}>{cwd}</div>
+          {extraPaths.map((p) => (
+            <div key={p} className="ctx-workspace-path ctx-workspace-extra mono">+ {p}</div>
+          ))}
+          <div className="ctx-workspace-add">
+            <input
+              className="ctx-workspace-input"
+              placeholder="Add project path..."
+              value={workspaceInput}
+              onChange={(e) => setWorkspaceInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") onAddPath(); }}
+            />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function ContextPanel({ session }: ContextPanelProps) {
   const { metrics, detected_agent } = session;
   const mode = useExecutionMode(session.id);
@@ -464,13 +501,17 @@ export function ContextPanel({ session }: ContextPanelProps) {
     <div className={`context-panel ${contextManager.lifecycle === 'dirty' || contextManager.lifecycle === 'apply_failed' ? "context-panel-outofsync" : ""}`}>
       <div className="context-panel-header">
         <span className="context-panel-title">Context</span>
-        <button
-          className={`ctx-copy-btn ${copyDone ? "ctx-copy-btn-done" : ""}`}
-          onClick={handleCopyContext}
-          title="Copy context bundle (⌘⇧C)"
-        >
-          {copyDone ? "Copied" : "Copy"}
-        </button>
+        <div className="ctx-header-actions">
+          <button className="ctx-header-action-btn" onClick={() => setShowPinAdd(!showPinAdd)} title="Add pin">&#x1F4CC;</button>
+          <button className="ctx-header-action-btn" onClick={() => setShowMemoryAdd(!showMemoryAdd)} title="Add memory fact">&#x1F4DD;</button>
+          <button
+            className={`ctx-copy-btn ${copyDone ? "ctx-copy-btn-done" : ""}`}
+            onClick={handleCopyContext}
+            title="Copy context bundle (⌘⇧C)"
+          >
+            {copyDone ? "Copied" : "Copy"}
+          </button>
+        </div>
       </div>
       <ContextStatusBar
         manager={contextManager}
@@ -528,12 +569,11 @@ export function ContextPanel({ session }: ContextPanelProps) {
           </div>
         )}
 
-        {/* Pinned Context */}
+        {/* Pinned Context — only render when there are pins or adding */}
         {(pins.length > 0 || showPinAdd) && (
           <div className="ctx-section">
             <div className="ctx-section-title">
               Pinned <span className="ctx-cost">{pins.length}</span>
-              <button className="ctx-memory-add-btn" onClick={() => setShowPinAdd(!showPinAdd)} title="Add pin">+</button>
             </div>
             {pins.map((pin) => (
               <div key={pin.id} className="ctx-pin-row">
@@ -577,14 +617,6 @@ export function ContextPanel({ session }: ContextPanelProps) {
             )}
           </div>
         )}
-        {pins.length === 0 && !showPinAdd && (
-          <div className="ctx-section">
-            <div className="ctx-section-title">
-              Pinned
-              <button className="ctx-memory-add-btn" onClick={() => setShowPinAdd(true)} title="Add pin">+</button>
-            </div>
-          </div>
-        )}
 
         {/* Performance (F5) */}
         {(metrics.latency_p50_ms != null || metrics.latency_p95_ms != null) && (
@@ -620,25 +652,27 @@ export function ContextPanel({ session }: ContextPanelProps) {
           </div>
         )}
 
-        {/* Health */}
-        <div className="ctx-section">
-          <div className="ctx-section-title">Health</div>
-          <div className="ctx-kv">
-            <span>Output</span>
-            <span className="mono">{metrics.output_lines.toLocaleString()} lines</span>
-          </div>
-          <div className="ctx-kv">
-            <span>Errors</span>
-            <span className={`mono ${metrics.error_count > 0 ? "text-red" : ""}`}>{metrics.error_count}</span>
-          </div>
-          {metrics.stuck_score > 0 && (
-            <div className="ctx-stuck-bar">
-              <div className="ctx-stuck-bar-fill"
-                   data-level={metrics.stuck_score > 0.7 ? "high" : metrics.stuck_score > 0.4 ? "medium" : "low"}
-                   style={{ width: `${metrics.stuck_score * 100}%` }} />
+        {/* Health — hide when nothing to report */}
+        {(metrics.output_lines > 0 || metrics.error_count > 0 || metrics.stuck_score > 0) && (
+          <div className="ctx-section">
+            <div className="ctx-section-title">Health</div>
+            <div className="ctx-kv">
+              <span>Output</span>
+              <span className="mono">{metrics.output_lines.toLocaleString()} lines</span>
             </div>
-          )}
-        </div>
+            <div className="ctx-kv">
+              <span>Errors</span>
+              <span className={`mono ${metrics.error_count > 0 ? "text-red" : ""}`}>{metrics.error_count}</span>
+            </div>
+            {metrics.stuck_score > 0 && (
+              <div className="ctx-stuck-bar">
+                <div className="ctx-stuck-bar-fill"
+                     data-level={metrics.stuck_score > 0.7 ? "high" : metrics.stuck_score > 0.4 ? "medium" : "low"}
+                     style={{ width: `${metrics.stuck_score * 100}%` }} />
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Tool Calls */}
         {toolEntries.length > 0 && (
@@ -673,17 +707,18 @@ export function ContextPanel({ session }: ContextPanelProps) {
           </div>
         )}
 
-        {/* Memory (merged: live-detected + persisted) */}
+        {/* Memory (merged: live-detected + persisted) — hidden when empty */}
         {(() => {
           const liveKeys = new Set(metrics.memory_facts.map((f) => f.key));
           const persistedOnly = persistedMemory.filter((m) => !liveKeys.has(m.key));
           const totalCount = metrics.memory_facts.length + persistedOnly.length;
 
-          return (totalCount > 0 || showMemoryAdd) ? (
+          if (totalCount === 0 && !showMemoryAdd) return null;
+
+          return (
             <div className="ctx-section">
               <div className="ctx-section-title">
                 Memory <span className="ctx-cost">{totalCount} facts</span>
-                <button className="ctx-memory-add-btn" onClick={() => setShowMemoryAdd(!showMemoryAdd)} title="Add memory fact">+</button>
               </div>
               {metrics.memory_facts.map((fact) => (
                 <div key={fact.key} className="ctx-memory-row">
@@ -711,29 +746,48 @@ export function ContextPanel({ session }: ContextPanelProps) {
                 </div>
               )}
             </div>
-          ) : (
-            <div className="ctx-section">
-              <div className="ctx-section-title">
-                Memory
-                <button className="ctx-memory-add-btn" onClick={() => setShowMemoryAdd(true)} title="Add memory fact">+</button>
-              </div>
-              <div className="ctx-memory-empty">No memory facts recorded yet</div>
-            </div>
           );
         })()}
 
-        {/* Recent Errors + Error Intelligence + Correlations (F6) */}
+        {/* Recent Errors + Error Intelligence + Correlations (F6) — Tiered Display */}
         {(metrics.recent_errors.length > 0 || errorMatches.length > 0) && (
           <div className="ctx-section">
-            <div className="ctx-section-title">Errors ({metrics.recent_errors.length})</div>
-            {errorMatches.map((match) => (
+            <div className="ctx-section-title">
+              Errors ({metrics.recent_errors.length})
+              <button
+                className="ctx-error-copy-btn"
+                onClick={() => {
+                  const last3 = metrics.recent_actions.slice(-3).map((a) => a.command).join("\n");
+                  const errText = metrics.recent_errors.slice(-3).join("\n");
+                  const text = `CWD: ${session.working_directory}\n\nRecent commands:\n${last3}\n\nErrors:\n${errText}`;
+                  navigator.clipboard.writeText(text).catch(console.error);
+                }}
+                title="Copy errors with context"
+              >
+                Copy
+              </button>
+            </div>
+            {/* Sorted: fix-available first, then seen-multiple, then new */}
+            {[...errorMatches]
+              .sort((a, b) => {
+                if (a.resolution && !b.resolution) return -1;
+                if (!a.resolution && b.resolution) return 1;
+                return b.occurrence_count - a.occurrence_count;
+              })
+              .map((match) => (
               <div key={match.fingerprint}>
                 <div className="ctx-error-match">
                   <div className="ctx-error-match-header">
-                    <span className="ctx-error-match-count">Seen {match.occurrence_count}x</span>
+                    {match.resolution ? (
+                      <span className="ctx-error-tier-badge ctx-error-tier-fix">Fix</span>
+                    ) : match.occurrence_count > 1 ? (
+                      <span className="ctx-error-tier-badge ctx-error-tier-seen">Seen &times;{match.occurrence_count}</span>
+                    ) : (
+                      <span className="ctx-error-tier-badge ctx-error-tier-new">New</span>
+                    )}
                     {match.resolution && (
                       <span className="ctx-error-match-resolution">
-                        Last fix: "{match.resolution}"
+                        {match.resolution}
                         {mode === "assisted" && (
                           <button
                             className="ctx-error-apply-btn"
@@ -744,9 +798,11 @@ export function ContextPanel({ session }: ContextPanelProps) {
                         )}
                       </span>
                     )}
+                    {!match.resolution && match.occurrence_count > 1 && (
+                      <span className="ctx-error-match-count">Seen {match.occurrence_count}x</span>
+                    )}
                   </div>
                 </div>
-                {/* Error Correlations (F6) */}
                 {correlations[match.fingerprint]?.map((corr) => (
                   <div key={corr.session_id} className="ctx-error-correlation">
                     Also in:{" "}
@@ -793,31 +849,14 @@ export function ContextPanel({ session }: ContextPanelProps) {
         {/* Domain — Attached Realms */}
         <DomainSection sessionId={session.id} />
 
-        {/* Workspace Paths */}
-        <div className="ctx-section">
-          <div className="ctx-section-title">Workspace</div>
-          <div className="ctx-workspace-path mono">{session.working_directory}</div>
-          {session.workspace_paths.map((p) => (
-            <div key={p} className="ctx-workspace-path ctx-workspace-extra mono">+ {p}</div>
-          ))}
-          <div className="ctx-workspace-add">
-            <input
-              className="ctx-workspace-input"
-              placeholder="Add project path..."
-              value={workspaceInput}
-              onChange={(e) => setWorkspaceInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") addWorkspacePath(); }}
-            />
-          </div>
-        </div>
-
-        {/* Session Info */}
-        <div className="ctx-section">
-          <div className="ctx-section-title">Session</div>
-          <div className="ctx-kv"><span>Shell</span><span className="mono">{session.shell.split("/").pop()}</span></div>
-          <div className="ctx-kv"><span>Phase</span><span>{session.phase}</span></div>
-          <div className="ctx-kv"><span>Created</span><span className="mono">{new Date(session.created_at).toLocaleTimeString()}</span></div>
-        </div>
+        {/* Workspace — compact CWD with click-to-expand */}
+        <WorkspaceCompact
+          cwd={session.working_directory}
+          extraPaths={session.workspace_paths}
+          workspaceInput={workspaceInput}
+          setWorkspaceInput={setWorkspaceInput}
+          onAddPath={addWorkspacePath}
+        />
       </div>
     </div>
   );

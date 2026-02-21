@@ -92,9 +92,9 @@
 }
 
 .topbar-title {
-  font-size: var(--text-lg);
+  font-size: var(--text-base);
   font-weight: 600;
-  color: var(--text-2);
+  color: var(--text-3);
   letter-spacing: 1px;
 }
 
@@ -106,9 +106,9 @@
 }
 
 .topbar-session-name {
-  font-size: var(--text-lg);
+  font-size: var(--text-base);
   font-weight: 500;
-  color: var(--text-0);
+  color: var(--text-1);
 }
 
 .topbar-phase {

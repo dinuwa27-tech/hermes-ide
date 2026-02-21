@@ -1,4 +1,5 @@
 import "../styles/components/StatusBar.css";
+import { useState, useEffect } from "react";
 import { setSetting } from "../api/settings";
 import { useActiveSession, useSessionList, useTotalCost, useTotalTokens, useExecutionMode, useSession, ExecutionMode } from "../state/SessionContext";
 
@@ -6,6 +7,14 @@ function formatTokens(n: number): string {
   if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
   if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
   return n.toString();
+}
+
+function formatElapsed(createdAt: string): string {
+  const diff = Math.floor((Date.now() - new Date(createdAt).getTime()) / 1000);
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
+  return `${Math.floor(diff / 86400)}d`;
 }
 
 export function StatusBar() {
@@ -16,6 +25,14 @@ export function StatusBar() {
   const hasTokens = totalTokens.input + totalTokens.output > 0;
   const { dispatch } = useSession();
   const mode = useExecutionMode(active?.id ?? null);
+  const [, setTick] = useState(0);
+
+  // Update elapsed time every 30s
+  useEffect(() => {
+    if (!active) return;
+    const interval = setInterval(() => setTick((t) => t + 1), 30000);
+    return () => clearInterval(interval);
+  }, [active?.id]);
 
   const cycleMode = () => {
     if (!active) return;
@@ -24,6 +41,8 @@ export function StatusBar() {
     dispatch({ type: "SET_DEFAULT_MODE", mode: next });
     setSetting("execution_mode", next).catch(console.error);
   };
+
+  const cwdBasename = active ? active.working_directory.split("/").pop() || active.working_directory : "";
 
   return (
     <div className="status-bar">
@@ -91,14 +110,11 @@ export function StatusBar() {
         )}
         {active && (
           <>
-            <span className="status-bar-item mono">{active.shell.split("/").pop()}</span>
+            <span className="status-bar-item status-bar-elapsed">{formatElapsed(active.created_at)}</span>
             <span className="status-bar-divider" />
-            <span className="status-bar-item mono truncate">{active.working_directory}</span>
-            <span className="status-bar-divider" />
+            <span className="status-bar-item mono" title={active.working_directory}>{cwdBasename}</span>
           </>
         )}
-        {active && <span className="status-bar-item"><kbd className="status-kbd">⌘J</kbd></span>}
-        <span className="status-bar-item"><kbd className="status-kbd">⌘K</kbd></span>
       </div>
     </div>
   );

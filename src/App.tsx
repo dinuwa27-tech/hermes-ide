@@ -18,8 +18,6 @@ import { FlowToast } from "./components/FlowToast";
 import { ExecutionTimeline } from "./components/ExecutionTimeline";
 import { AutoToast } from "./components/AutoToast";
 import { copyContextToClipboard } from "./utils/copyContextToClipboard";
-import { BootSequence } from "./components/BootSequence";
-import { HermesDaemon } from "./components/HermesDaemon";
 import { RealmPicker } from "./components/RealmPicker";
 import { SessionCreator } from "./components/SessionCreator";
 import { PromptComposer } from "./components/PromptComposer";
@@ -206,7 +204,6 @@ function AppContent() {
             <>
               <span className="topbar-dot" style={{ background: activeSession.color }} />
               <span className="topbar-session-name">{activeSession.label}</span>
-              <span className="topbar-phase">{activeSession.phase}</span>
             </>
           ) : (
             <span className="topbar-title">HERMES-IDEA</span>
@@ -421,14 +418,10 @@ class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryStat
 // ─── App Root ───────────────────────────────────────────────────────
 
 function App() {
-  const [booted, setBooted] = useState(false);
-
   return (
     <ErrorBoundary>
-      {!booted && <BootSequence onComplete={() => setBooted(true)} />}
       <SessionProvider>
         <AppContent />
-        {booted && <HermesDaemon mode="watermark" />}
       </SessionProvider>
     </ErrorBoundary>
   );

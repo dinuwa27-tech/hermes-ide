@@ -1,7 +1,8 @@
 import "../styles/components/TerminalPane.css";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { detectProject } from "../api/realms";
+import { writeToSession } from "../api/sessions";
 import {
   attach, detach, has, showGhostText, clearGhostText,
   subscribeSuggestions, setSessionPhase, setSessionCwd,
@@ -29,6 +30,8 @@ export function TerminalPane({ sessionId, phase, color }: TerminalPaneProps) {
   const autoSettings = useAutonomousSettings();
   const { dispatch } = useSession();
   const [suggestionState, setSuggestionState] = useState<SuggestionState | null>(null);
+  const [annotation, setAnnotation] = useState<{ type: string; message: string; command?: string } | null>(null);
+  const annotationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Attach/detach terminal from pool
   useEffect(() => {
@@ -171,6 +174,34 @@ export function TerminalPane({ sessionId, phase, color }: TerminalPaneProps) {
     return () => { unlisten?.(); };
   }, [sessionId, mode, dispatch, autoSettings.errorMinOccurrences]);
 
+  // Error annotation overlay — show known fix bar when a resolution is available
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    listen<ErrorMatchEvent>(`error-matched-${sessionId}`, (event) => {
+      const match = event.payload;
+      if (match.resolution) {
+        if (annotationTimerRef.current) clearTimeout(annotationTimerRef.current);
+        setAnnotation({
+          type: "fix",
+          message: `Known fix: \`${match.resolution}\``,
+          command: match.resolution,
+        });
+        annotationTimerRef.current = setTimeout(() => setAnnotation(null), 15000);
+      }
+    }).then((u) => { unlisten = u; });
+    return () => {
+      unlisten?.();
+      if (annotationTimerRef.current) clearTimeout(annotationTimerRef.current);
+    };
+  }, [sessionId]);
+
+  const applyAnnotation = useCallback(() => {
+    if (!annotation?.command) return;
+    const data = btoa(annotation.command + "\r");
+    writeToSession(sessionId, data).catch(console.error);
+    setAnnotation(null);
+  }, [annotation, sessionId]);
+
   const showLoading = !ready && (phase === "creating" || phase === "initializing");
   const phaseLabel = phase === "creating" ? "Spawning shell..." :
                      phase === "initializing" ? "Starting shell..." :
@@ -187,6 +218,17 @@ export function TerminalPane({ sessionId, phase, color }: TerminalPaneProps) {
       <div className="terminal-viewport" ref={viewportRef} />
       {suggestionState && (
         <SuggestionOverlay state={suggestionState} />
+      )}
+      {annotation && (
+        <div className="terminal-annotation-bar">
+          <span className="terminal-annotation-message">{annotation.message}</span>
+          <div className="terminal-annotation-actions">
+            {annotation.command && (
+              <button className="terminal-annotation-apply" onClick={applyAnnotation}>Apply</button>
+            )}
+            <button className="terminal-annotation-dismiss" onClick={() => setAnnotation(null)}>Dismiss</button>
+          </div>
+        </div>
       )}
       <div className="terminal-color-accent" style={{ background: color }} />
     </div>

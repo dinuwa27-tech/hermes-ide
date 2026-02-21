@@ -386,6 +386,29 @@
   white-space: nowrap;
 }
 .ctx-workspace-extra { color: var(--accent); }
+
+/* Compact workspace line */
+.ctx-workspace-compact {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-md);
+  color: var(--text-1);
+  transition: background 0.1s;
+}
+.ctx-workspace-compact:hover { background: var(--bg-hover); }
+
+.ctx-workspace-expand-badge {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-dim);
+  color: var(--accent);
+}
 .ctx-workspace-add { margin-top: 6px; }
 .ctx-workspace-input {
   width: 100%;
@@ -505,6 +528,36 @@
 }
 .ctx-error-apply-btn:hover { background: var(--green); color: var(--bg-0); }
 
+/* Error tier badges */
+.ctx-error-tier-badge {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+.ctx-error-tier-fix { background: var(--green-dim); color: var(--green); }
+.ctx-error-tier-seen { background: var(--yellow-dim); color: var(--yellow); }
+.ctx-error-tier-new { background: var(--bg-3); color: var(--text-3); }
+
+/* Copy errors with context button */
+.ctx-error-copy-btn {
+  font-size: var(--text-xs);
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+.ctx-error-copy-btn:hover { background: var(--bg-3); color: var(--text-1); }
+
 /* ─── Smart Context (Copy Button) ────────────────────── */
 
 .context-panel-header {
@@ -527,6 +580,35 @@
   color: var(--text-2);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+/* Header action buttons */
+.ctx-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.ctx-header-action-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 11px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+  padding: 0;
+  line-height: 1;
+}
+.ctx-header-action-btn:hover {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 .ctx-copy-btn {

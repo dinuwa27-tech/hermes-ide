@@ -5,6 +5,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { writeToSession, resizeSession } from "../api/sessions";
 import { suggest } from "./intelligence/suggestionEngine";
+import { resolveIntent, getIntentSuggestions } from "./intentCommands";
 import { type ProjectContext, getCachedContext } from "./intelligence/contextAnalyzer";
 import { createHistoryProvider, type HistoryProvider } from "./intelligence/historyProvider";
 import { type SuggestionState } from "./intelligence/SuggestionOverlay";
@@ -268,6 +269,23 @@ function handleTerminalInput(sessionId: string, data: string): void {
     clearGhostText(sessionId);
   }
 
+  // ── Intent command interception ──
+  if (data === "\r" && intelligenceActive && entry.inputBuffer.trimStart().startsWith(":")) {
+    const result = resolveIntent(entry.inputBuffer, { cwd: entry.cwd });
+    if (result.resolved) {
+      const eraseSequence = "\x7f".repeat(entry.inputBuffer.length);
+      const fullData = eraseSequence + result.command + "\r";
+      entry.historyProvider.addCommand(result.command);
+      entry.inputBuffer = "";
+      dismissSuggestions(sessionId);
+      clearGhostText(sessionId);
+      writeToSession(sessionId, utf8ToBase64(fullData)).catch((err) => {
+        console.warn(`[TerminalPool] write_to_session (intent) failed:`, err);
+      });
+      return;
+    }
+  }
+
   // ── Always pass data to PTY ──
   writeToSession(sessionId, utf8ToBase64(data)).catch((err) => {
     console.warn(`[TerminalPool] write_to_session failed for ${sessionId}:`, err);
@@ -322,6 +340,30 @@ function computeSuggestions(sessionId: string): void {
   if (!entry || !entry.inputBuffer.trim()) return;
   if (isIntelligenceDisabled()) return;
   if (!shouldShowOverlay(sessionId)) return;
+
+  // Intent suggestions (colon-prefixed commands)
+  if (entry.inputBuffer.trimStart().startsWith(":")) {
+    const intentResults = getIntentSuggestions(entry.inputBuffer.trim());
+    if (intentResults.length > 0) {
+      const pos = getCursorPixelPosition(entry);
+      const state: SuggestionState = {
+        visible: true,
+        suggestions: intentResults.map((r, i) => ({
+          text: r.text,
+          description: r.description,
+          source: "index" as const,
+          score: 1000 - i,
+          badge: "intent",
+        })),
+        selectedIndex: 0,
+        cursorX: pos.x,
+        cursorY: pos.y,
+      };
+      entry.suggestionState = state;
+      notifySubscribers(sessionId, state);
+      return;
+    }
+  }
 
   const context: ProjectContext | null = entry.cwd ? getCachedContext(entry.cwd) : null;
   const results = suggest(entry.inputBuffer, context, entry.historyProvider);
