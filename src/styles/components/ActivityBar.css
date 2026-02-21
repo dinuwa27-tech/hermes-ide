@@ -1,0 +1,123 @@
+/* ─── Activity Bar ──────────────────────────────────────────── */
+
+.activity-bar {
+  width: var(--activity-bar-w);
+  background: var(--bg-0);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-2) 0;
+  gap: var(--space-1);
+  flex-shrink: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.activity-bar-left {
+  border-right: 1px solid var(--border);
+}
+
+.activity-bar-right {
+  border-left: 1px solid var(--border);
+}
+
+/* ─── Tab button ─────────────────────────────────────────── */
+
+.activity-bar-tab {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: var(--radius);
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.1s, color 0.1s;
+}
+
+.activity-bar-tab:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.activity-bar-tab-active {
+  color: var(--text-0);
+}
+
+/* Accent indicator bar on the outer edge */
+.activity-bar-left .activity-bar-tab-active::before {
+  content: "";
+  position: absolute;
+  left: -4px;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+}
+
+.activity-bar-right .activity-bar-tab-active::before {
+  content: "";
+  position: absolute;
+  right: -4px;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+}
+
+/* ─── Badge ──────────────────────────────────────────────── */
+
+.activity-bar-badge {
+  position: absolute;
+  top: 1px;
+  right: 0;
+  min-width: 14px;
+  height: 14px;
+  font-size: 8px;
+  font-weight: 600;
+  line-height: 14px;
+  text-align: center;
+  background: var(--accent);
+  color: var(--bg-0);
+  border-radius: var(--radius-pill);
+  padding: 0 3px;
+  pointer-events: none;
+  font-family: var(--font-ui);
+}
+
+/* ─── Top action button (+) ──────────────────────────────── */
+
+.activity-bar-action {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: var(--radius);
+  color: var(--text-2);
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.1s, color 0.1s;
+}
+
+.activity-bar-action:hover {
+  background: var(--bg-hover);
+  color: var(--text-0);
+}
+
+/* ─── Separator ──────────────────────────────────────────── */
+
+.activity-bar-separator {
+  width: 18px;
+  height: 1px;
+  background: var(--border-light);
+  margin: var(--space-1) 0;
+}

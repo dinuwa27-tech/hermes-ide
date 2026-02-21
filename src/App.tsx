@@ -7,6 +7,7 @@ import { createRealm } from "./api/realms";
 import { SessionProvider, useSession, useActiveSession, useSessionList, useAutonomousSettings } from "./state/SessionContext";
 import { SessionList } from "./components/SessionList";
 import { ContextPanel } from "./components/ContextPanel";
+import { ActivityBar, SessionsIcon, ContextIcon, PlusIcon } from "./components/ActivityBar";
 import { StatusBar } from "./components/StatusBar";
 import { CommandPalette } from "./components/CommandPalette";
 import { EmptyState } from "./components/EmptyState";
@@ -185,19 +186,6 @@ function AppContent() {
         {/* Traffic light spacer */}
         <div className="topbar-traffic-spacer" />
 
-        {/* Left controls — interactive, opt out of drag */}
-        <div className="topbar-controls">
-          <button
-            className="topbar-btn"
-            onClick={() => dispatch({ type: "TOGGLE_SIDEBAR" })}
-            title="Toggle Sessions (⌘B)"
-          >
-            {ui.sessionListCollapsed ? "›" : "‹"}
-            {sessions.length > 0 && <span className="topbar-badge">{sessions.length}</span>}
-          </button>
-          <button className="topbar-btn topbar-btn-new" onClick={() => setSessionCreatorOpen(true)} title="New Session (⌘N)">+</button>
-        </div>
-
         {/* Center — decorative, pass-through for drag */}
         <div className="topbar-center">
           {activeSession ? (
@@ -210,19 +198,20 @@ function AppContent() {
           )}
         </div>
 
-        {/* Right controls */}
-        <div className="topbar-controls">
-          <button
-            className={`topbar-btn ${ui.contextPanelOpen ? "topbar-btn-active" : ""}`}
-            onClick={() => dispatch({ type: "TOGGLE_CONTEXT" })}
-            title="Toggle Context (⌘E)"
-          >
-            ctx
-          </button>
-        </div>
       </div>
 
       <div className="app-body">
+        {!ui.flowMode && (
+          <ActivityBar
+            side="left"
+            tabs={[
+              { id: "sessions", label: "Sessions (⌘B)", icon: SessionsIcon, badge: sessions.length || undefined },
+            ]}
+            activeTabId={ui.sessionListCollapsed ? null : "sessions"}
+            onTabClick={() => dispatch({ type: "TOGGLE_SIDEBAR" })}
+            topAction={{ icon: PlusIcon, label: "New Session (⌘N)", onClick: () => setSessionCreatorOpen(true) }}
+          />
+        )}
         {!ui.sessionListCollapsed && !ui.flowMode && (
           <SessionList
             sessions={sessions}
@@ -274,6 +263,16 @@ function AppContent() {
             <ContextPanel session={activeSession} />
           )}
         </div>
+        {!ui.flowMode && (
+          <ActivityBar
+            side="right"
+            tabs={[
+              { id: "context", label: "Context (⌘E)", icon: ContextIcon },
+            ]}
+            activeTabId={ui.contextPanelOpen ? "context" : null}
+            onTabClick={() => dispatch({ type: "TOGGLE_CONTEXT" })}
+          />
+        )}
       </div>
 
       <StatusBar />
