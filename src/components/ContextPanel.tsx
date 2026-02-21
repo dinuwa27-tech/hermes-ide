@@ -274,7 +274,6 @@ function WorkspaceCompact({ cwd, extraPaths, workspaceInput, setWorkspaceInput, 
 // ─── Constants ──────────────────────────────────────────────────────
 const COPY_FEEDBACK_MS = 2000;
 const MAX_ERROR_CORRELATIONS = 3;
-const MAX_VISIBLE_ERRORS = 10;
 
 export function ContextPanel({ session }: ContextPanelProps) {
   const { metrics, detected_agent } = session;

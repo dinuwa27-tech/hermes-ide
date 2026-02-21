@@ -12,7 +12,7 @@
  * Bug 9:  useContextState sync effect fired on every SESSION_UPDATED due to unstable array deps
  * Bug 10: TerminalPool.destroy didn't clean up sessionShellEnv (memory leak)
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 // ─── Mock Tauri APIs ─────────────────────────────────────────────────
 vi.mock("@tauri-apps/api/core", () => ({
@@ -328,7 +328,7 @@ describe("Bug 5: Listen effect cleanup pattern", () => {
 
   it("listen returns an unlisten function that can be called", async () => {
     const { listen } = await import("@tauri-apps/api/event");
-    const unlisten = await (listen as ReturnType<typeof vi.fn>)("test-event", () => {});
+    const unlisten = await (listen as unknown as (...args: unknown[]) => Promise<() => void>)("test-event", () => {});
     expect(typeof unlisten).toBe("function");
     // Should not throw
     unlisten();
