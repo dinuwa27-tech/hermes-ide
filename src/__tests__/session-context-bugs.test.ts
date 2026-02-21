@@ -285,7 +285,7 @@ describe("Bug 4: SHOW_STUCK_OVERLAY respects dismissed sessions", () => {
     });
     expect(state.ui.stuckOverlaySessionId).toBe("s1");
 
-    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY" });
+    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY", sessionId: "s1" });
     expect(state.ui.stuckOverlaySessionId).toBeNull();
     expect(state.ui.dismissedStuckSessions.has("s1")).toBe(true);
   });
@@ -296,7 +296,7 @@ describe("Bug 4: SHOW_STUCK_OVERLAY respects dismissed sessions", () => {
       session: makeSession({ id: "s1" }),
     });
     state = sessionReducer(state, { type: "SHOW_STUCK_OVERLAY", sessionId: "s1" });
-    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY" });
+    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY", sessionId: "s1" });
     expect(state.ui.dismissedStuckSessions.has("s1")).toBe(true);
 
     state = sessionReducer(state, { type: "SESSION_REMOVED", id: "s1" });
@@ -307,10 +307,10 @@ describe("Bug 4: SHOW_STUCK_OVERLAY respects dismissed sessions", () => {
     let state = initialState;
 
     state = sessionReducer(state, { type: "SHOW_STUCK_OVERLAY", sessionId: "s1" });
-    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY" });
+    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY", sessionId: "s1" });
 
     state = sessionReducer(state, { type: "SHOW_STUCK_OVERLAY", sessionId: "s2" });
-    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY" });
+    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY", sessionId: "s2" });
 
     expect(state.ui.dismissedStuckSessions.has("s1")).toBe(true);
     expect(state.ui.dismissedStuckSessions.has("s2")).toBe(true);
@@ -503,7 +503,7 @@ describe("Bug 8: Stuck overlay auto-dismiss on recovery", () => {
     });
     expect(state.ui.stuckOverlaySessionId).toBe("s1");
 
-    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY" });
+    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY", sessionId: "s1" });
     expect(state.ui.stuckOverlaySessionId).toBeNull();
   });
 
@@ -521,7 +521,7 @@ describe("Bug 8: Stuck overlay auto-dismiss on recovery", () => {
     expect(state.ui.stuckOverlaySessionId).toBe("s1");
 
     // When stuck_score drops, DISMISS_STUCK_OVERLAY should be dispatched
-    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY" });
+    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY", sessionId: "s1" });
     expect(state.ui.stuckOverlaySessionId).toBeNull();
   });
 
@@ -531,14 +531,14 @@ describe("Bug 8: Stuck overlay auto-dismiss on recovery", () => {
     // First stuck -> dismiss cycle
     state = sessionReducer(state, { type: "SHOW_STUCK_OVERLAY", sessionId: "s1" });
     expect(state.ui.stuckOverlaySessionId).toBe("s1");
-    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY" });
+    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY", sessionId: "s1" });
     expect(state.ui.stuckOverlaySessionId).toBeNull();
     expect(state.ui.dismissedStuckSessions.has("s1")).toBe(true);
 
     // Second stuck on different session -> dismiss
     state = sessionReducer(state, { type: "SHOW_STUCK_OVERLAY", sessionId: "s2" });
     expect(state.ui.stuckOverlaySessionId).toBe("s2");
-    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY" });
+    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY", sessionId: "s2" });
     expect(state.ui.stuckOverlaySessionId).toBeNull();
     expect(state.ui.dismissedStuckSessions.has("s1")).toBe(true);
     expect(state.ui.dismissedStuckSessions.has("s2")).toBe(true);
@@ -727,7 +727,7 @@ describe("Integration: Multi-bug session lifecycle", () => {
     });
 
     // Dismiss stuck overlay (adds to dismissed set)
-    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY" });
+    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY", sessionId: "s1" });
 
     // Verify all per-session state exists
     expect(state.executionModes["s1"]).toBe("autonomous");

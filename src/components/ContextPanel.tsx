@@ -290,6 +290,7 @@ export function ContextPanel({ session }: ContextPanelProps) {
   const [pinKind, setPinKind] = useState<string>("file");
   const [pinTarget, setPinTarget] = useState("");
   const [pinScope, setPinScope] = useState<"project" | "session">("project");
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [memoryScopeInput, setMemoryScopeInput] = useState<"project" | "global">("project");
   const [correlations, setCorrelations] = useState<Record<string, ErrorCorrelation[]>>({});
   const [copyDone, setCopyDone] = useState(false);
@@ -542,8 +543,20 @@ export function ContextPanel({ session }: ContextPanelProps) {
     dispatch({ type: "TOGGLE_AUTO_APPLY" });
   }, [dispatch]);
 
+  // Session-level injection lock: prevents multi-pane duplicate apply
+  const lockedApplyContext = useCallback(async () => {
+    if (sessionState.injectionLocks[session.id]) return; // Another pane already applying
+    dispatch({ type: "ACQUIRE_INJECTION_LOCK", sessionId: session.id });
+    try {
+      await contextManager.applyContext();
+    } finally {
+      dispatch({ type: "RELEASE_INJECTION_LOCK", sessionId: session.id });
+    }
+  }, [session.id, sessionState.injectionLocks, dispatch, contextManager]);
+
   // Auto-apply on execution: when session becomes busy and context is dirty
   const prevPhase = useRef(session.phase);
+  const autoApplyTimeout = useRef<ReturnType<typeof setTimeout>>();
   useEffect(() => {
     const wasBusy = prevPhase.current === "busy";
     prevPhase.current = session.phase;
@@ -553,9 +566,13 @@ export function ContextPanel({ session }: ContextPanelProps) {
       sessionState.autoApplyEnabled &&
       contextManager.lifecycle === 'dirty'
     ) {
-      contextManager.applyContext().catch(console.error);
+      clearTimeout(autoApplyTimeout.current);
+      autoApplyTimeout.current = setTimeout(() => {
+        lockedApplyContext().catch(console.error);
+      }, 100); // 100ms debounce prevents multi-pane race
     }
-  }, [session.phase, sessionState.autoApplyEnabled, contextManager.lifecycle, contextManager.applyContext]);
+    return () => clearTimeout(autoApplyTimeout.current);
+  }, [session.phase, sessionState.autoApplyEnabled, contextManager.lifecycle, lockedApplyContext]);
 
   return (
     <div className={`context-panel ${contextManager.lifecycle === 'dirty' || contextManager.lifecycle === 'apply_failed' ? "context-panel-outofsync" : ""}`}>
@@ -577,6 +594,7 @@ export function ContextPanel({ session }: ContextPanelProps) {
         manager={contextManager}
         autoApplyEnabled={sessionState.autoApplyEnabled}
         onToggleAutoApply={handleToggleAutoApply}
+        onApply={lockedApplyContext}
       />
       <ContextPreview manager={contextManager} />
       <div className="context-panel-body">
@@ -688,42 +706,26 @@ export function ContextPanel({ session }: ContextPanelProps) {
           </div>
         )}
 
-        {/* Performance (F5) */}
-        {(metrics.latency_p50_ms != null || metrics.latency_p95_ms != null) && (
+        {/* Response Time */}
+        {metrics.latency_p50_ms != null && (
           <div className="ctx-section">
-            <div className="ctx-section-title">Performance</div>
-            {metrics.latency_p50_ms != null && (
-              <div className="ctx-kv">
-                <span>p50</span>
-                <span className="mono">{(metrics.latency_p50_ms / 1000).toFixed(1)}s</span>
-              </div>
-            )}
-            {metrics.latency_p50_ms != null && (
-              <div className="ctx-perf-bar">
-                <div className={`ctx-perf-fill ${perfColor(metrics.latency_p50_ms)}`} style={{ width: `${perfWidth(metrics.latency_p50_ms)}%` }} />
-              </div>
-            )}
-            {metrics.latency_p95_ms != null && (
-              <div className="ctx-kv">
-                <span>p95</span>
-                <span className="mono">{(metrics.latency_p95_ms / 1000).toFixed(1)}s</span>
-              </div>
-            )}
-            {metrics.latency_p95_ms != null && (
-              <div className="ctx-perf-bar">
-                <div className={`ctx-perf-fill ${perfColor(metrics.latency_p95_ms)}`} style={{ width: `${perfWidth(metrics.latency_p95_ms)}%` }} />
-              </div>
-            )}
-            {metrics.latency_samples && metrics.latency_samples.length >= 2 && (
-              <div className="ctx-sparkline-wrap">
-                <Sparkline data={metrics.latency_samples} color="var(--accent)" width={260} height={24} />
-              </div>
-            )}
+            <div className="ctx-section-title">Response Time</div>
+            <div className="ctx-kv">
+              <span>Typical</span>
+              <span className="mono">
+                {(metrics.latency_p50_ms / 1000).toFixed(1)}s
+                {metrics.latency_p50_ms > 3000 && <span className="text-yellow"> slow</span>}
+                {metrics.latency_p50_ms > 8000 && <span className="text-red"> very slow</span>}
+              </span>
+            </div>
+            <div className="ctx-perf-bar">
+              <div className={`ctx-perf-fill ${perfColor(metrics.latency_p50_ms)}`} style={{ width: `${perfWidth(metrics.latency_p50_ms)}%` }} />
+            </div>
           </div>
         )}
 
         {/* Health — hide when nothing to report */}
-        {(metrics.output_lines > 0 || metrics.error_count > 0 || metrics.stuck_score > 0) && (
+        {(metrics.output_lines > 0 || metrics.error_count > 0) && (
           <div className="ctx-section">
             <div className="ctx-section-title">Health</div>
             <div className="ctx-kv">
@@ -734,11 +736,12 @@ export function ContextPanel({ session }: ContextPanelProps) {
               <span>Errors</span>
               <span className={`mono ${metrics.error_count > 0 ? "text-red" : ""}`}>{metrics.error_count}</span>
             </div>
-            {metrics.stuck_score > 0 && (
-              <div className="ctx-stuck-bar">
-                <div className="ctx-stuck-bar-fill"
-                     data-level={metrics.stuck_score > 0.7 ? "high" : metrics.stuck_score > 0.4 ? "medium" : "low"}
-                     style={{ width: `${metrics.stuck_score * 100}%` }} />
+            {metrics.stuck_score > 0.5 && (
+              <div className="ctx-kv">
+                <span>Status</span>
+                <span className={`mono ${metrics.stuck_score > 0.7 ? "text-red" : "text-yellow"}`}>
+                  {metrics.stuck_score > 0.7 ? "Stuck" : "Struggling"}
+                </span>
               </div>
             )}
           </div>
@@ -755,10 +758,6 @@ export function ContextPanel({ session }: ContextPanelProps) {
               <div className="ctx-last-tool mono">
                 Last: {metrics.tool_calls[0].tool}({metrics.tool_calls[0].args})
               </div>
-            )}
-            {/* Tool Timeline (F5) */}
-            {metrics.tool_calls.length > 1 && (
-              <ToolTimeline toolCalls={metrics.tool_calls} />
             )}
           </div>
         )}
@@ -787,7 +786,7 @@ export function ContextPanel({ session }: ContextPanelProps) {
                 <div key={fact.key} className="ctx-memory-row">
                   <span className="ctx-memory-key">{fact.key}</span>
                   <span className="ctx-memory-value mono">{fact.value}</span>
-                  <span className="ctx-memory-source" title={`Auto-detected (${Math.round(fact.confidence * 100)}%)`}>auto</span>
+                  <span className="ctx-memory-source" title="Auto-detected from session">auto</span>
                   <button className="ctx-pin-btn" onClick={() => pinMemory(fact.key, fact.value)} title="Pin">pin</button>
                 </div>
               ))}
@@ -926,6 +925,44 @@ export function ContextPanel({ session }: ContextPanelProps) {
           setWorkspaceInput={setWorkspaceInput}
           onAddPath={addWorkspacePath}
         />
+
+        {/* Advanced — collapsible diagnostics */}
+        <div className="ctx-section ctx-advanced-section">
+          <button
+            className="ctx-advanced-toggle"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+          >
+            {showAdvanced ? "\u25BE" : "\u25B8"} Advanced
+          </button>
+          {showAdvanced && (
+            <div className="ctx-advanced-body">
+              <div className="ctx-kv">
+                <span>Context version</span>
+                <span className="mono">v{contextManager.currentVersion}</span>
+              </div>
+              <div className="ctx-kv">
+                <span>Injected version</span>
+                <span className="mono">
+                  {contextManager.injectedVersion > 0 ? `v${contextManager.injectedVersion}` : "—"}
+                </span>
+              </div>
+              {metrics.latency_p95_ms != null && (
+                <div className="ctx-kv">
+                  <span>Worst 5% response</span>
+                  <span className="mono">{(metrics.latency_p95_ms / 1000).toFixed(1)}s</span>
+                </div>
+              )}
+              {metrics.latency_samples && metrics.latency_samples.length >= 2 && (
+                <div className="ctx-sparkline-wrap">
+                  <Sparkline data={metrics.latency_samples} color="var(--accent)" width={260} height={24} />
+                </div>
+              )}
+              {metrics.tool_calls.length > 1 && (
+                <ToolTimeline toolCalls={metrics.tool_calls} />
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

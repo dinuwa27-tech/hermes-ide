@@ -40,6 +40,7 @@ interface SessionState {
     cancelDelayMs: number;
   };
   autoApplyEnabled: boolean;
+  injectionLocks: Record<string, boolean>;
   layout: {
     root: LayoutNode | null;
     focusedPaneId: string | null;
@@ -95,8 +96,9 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       // Clean dismissed set
       const newDismissed = new Set(state.ui.dismissedStuckSessions);
       newDismissed.delete(action.id);
-      // Clean per-session execution mode
+      // Clean per-session execution mode and injection lock
       const { [action.id]: _mode, ...restModes } = state.executionModes;
+      const { [action.id]: _lock, ...restLocks } = state.injectionLocks;
       // Clear autoToast if it references the removed session
       const newAutoToast = state.ui.autoToast?.sessionId === action.id
         ? null
@@ -106,6 +108,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
         sessions: rest,
         activeSessionId: newActive,
         executionModes: restModes,
+        injectionLocks: restLocks,
         layout: { root: newRoot, focusedPaneId: newFocused },
         ui: { ...state.ui, dismissedStuckSessions: newDismissed, autoToast: newAutoToast },
       };
@@ -156,10 +159,12 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       return { ...state, ui: { ...state.ui, stuckOverlaySessionId: action.sessionId } };
     case "DISMISS_STUCK_OVERLAY": {
       const newDismissed = new Set(state.ui.dismissedStuckSessions);
-      if (state.ui.stuckOverlaySessionId) {
-        newDismissed.add(state.ui.stuckOverlaySessionId);
-      }
-      return { ...state, ui: { ...state.ui, stuckOverlaySessionId: null, dismissedStuckSessions: newDismissed } };
+      newDismissed.add(action.sessionId);
+      // Only clear overlay if it belongs to the dismissed session
+      const newOverlayId = state.ui.stuckOverlaySessionId === action.sessionId
+        ? null
+        : state.ui.stuckOverlaySessionId;
+      return { ...state, ui: { ...state.ui, stuckOverlaySessionId: newOverlayId, dismissedStuckSessions: newDismissed } };
     }
     case "SET_EXECUTION_MODE":
       return { ...state, executionModes: { ...state.executionModes, [action.sessionId]: action.mode } };
@@ -177,6 +182,14 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       return { ...state, autoApplyEnabled: !state.autoApplyEnabled };
     case "SET_AUTONOMOUS_SETTINGS":
       return { ...state, autonomousSettings: { ...state.autonomousSettings, ...action.settings } };
+    case "ACQUIRE_INJECTION_LOCK": {
+      if (state.injectionLocks[action.sessionId]) return state; // Already locked
+      return { ...state, injectionLocks: { ...state.injectionLocks, [action.sessionId]: true } };
+    }
+    case "RELEASE_INJECTION_LOCK": {
+      const { [action.sessionId]: _, ...rest } = state.injectionLocks;
+      return { ...state, injectionLocks: rest };
+    }
 
     // ─── Layout Actions ───────────────────────────────────────────────
     case "INIT_PANE": {
@@ -300,6 +313,7 @@ export const initialState: SessionState = {
     cancelDelayMs: 3000,
   },
   autoApplyEnabled: true,
+  injectionLocks: {},
   layout: {
     root: null,
     focusedPaneId: null,
@@ -410,7 +424,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           // Auto-dismiss stuck overlay when stuck_score drops below threshold
           if (stuckNotified.current.has(session.id)) {
             stuckNotified.current.delete(session.id);
-            dispatch({ type: "DISMISS_STUCK_OVERLAY" });
+            dispatch({ type: "DISMISS_STUCK_OVERLAY", sessionId: session.id });
           }
         }
       });
@@ -487,7 +501,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // Done in a separate effect to avoid the reducer needing access to current state during event
   useEffect(() => {
     if (state.ui.stuckOverlaySessionId && state.ui.dismissedStuckSessions.has(state.ui.stuckOverlaySessionId)) {
-      dispatch({ type: "DISMISS_STUCK_OVERLAY" });
+      dispatch({ type: "DISMISS_STUCK_OVERLAY", sessionId: state.ui.stuckOverlaySessionId });
     }
   }, [state.ui.stuckOverlaySessionId, state.ui.dismissedStuckSessions]);
 

@@ -30,7 +30,6 @@ export function StuckOverlay({ session, onDismiss, onSendCtrlC }: StuckOverlayPr
         )}
         <div className="stuck-overlay-info">
           {session.metrics.error_count} errors detected
-          {session.metrics.stuck_score > 0 && ` · Confidence: ${Math.round(session.metrics.stuck_score * 100)}%`}
         </div>
         <div className="stuck-overlay-actions">
           <button className="stuck-btn stuck-btn-danger" onClick={onSendCtrlC}>Send Ctrl+C</button>

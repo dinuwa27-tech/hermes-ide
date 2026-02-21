@@ -133,7 +133,7 @@ export type SessionAction =
   | { type: "TOGGLE_SIDEBAR" }
   | { type: "TOGGLE_PALETTE" }
   | { type: "SHOW_STUCK_OVERLAY"; sessionId: string }
-  | { type: "DISMISS_STUCK_OVERLAY" }
+  | { type: "DISMISS_STUCK_OVERLAY"; sessionId: string }
   | { type: "SET_EXECUTION_MODE"; sessionId: string; mode: ExecutionMode }
   | { type: "SET_DEFAULT_MODE"; mode: ExecutionMode }
   | { type: "TOGGLE_FLOW_MODE" }
@@ -142,6 +142,9 @@ export type SessionAction =
   | { type: "DISMISS_AUTO_TOAST" }
   | { type: "TOGGLE_AUTO_APPLY" }
   | { type: "SET_AUTONOMOUS_SETTINGS"; settings: Partial<{ errorMinOccurrences: number; commandMinFrequency: number; cancelDelayMs: number }> }
+  // Injection lock actions
+  | { type: "ACQUIRE_INJECTION_LOCK"; sessionId: string }
+  | { type: "RELEASE_INJECTION_LOCK"; sessionId: string }
   // Layout actions
   | { type: "INIT_PANE"; sessionId: string }
   | { type: "SPLIT_PANE"; paneId: string; direction: SplitDirection; newSessionId: string; insertBefore?: boolean }

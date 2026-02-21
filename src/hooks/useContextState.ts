@@ -4,6 +4,7 @@ import { SessionData } from "../state/SessionContext";
 import { getContextPins, getErrorResolutions, applyContext as apiApplyContext } from "../api/context";
 import { assembleSessionContext } from "../api/realms";
 import { getAllMemory } from "../api/memory";
+import { structuralEqual, structuralClone } from "../utils/structuralEqual";
 
 // ─── Re-export shared types for backward compatibility ──────────────
 export type {
@@ -128,7 +129,7 @@ export function useContextState(session: SessionData | null, executionMode?: str
   const [tokenBudget, setTokenBudget] = useState(DEFAULT_TOKEN_BUDGET);
   const [estimatedTokens, setEstimatedTokens] = useState(0);
 
-  const prevContextJson = useRef<string>("");
+  const prevContextRef = useRef<ContextState | null>(null);
   const versionRef = useRef(0);
   const lifecycleRef = useRef<ContextLifecycleState>('clean');
 
@@ -187,7 +188,7 @@ export function useContextState(session: SessionData | null, executionMode?: str
       setLifecycle('clean');
       setLastError(null);
       setInjectedContent(null);
-      prevContextJson.current = JSON.stringify(initial);
+      prevContextRef.current = structuralClone(initial);
     };
 
     load();
@@ -266,15 +267,13 @@ export function useContextState(session: SessionData | null, executionMode?: str
 
   // ── Auto-increment version when context changes → mark dirty ──
   useEffect(() => {
-    const json = JSON.stringify(context);
-    if (json !== prevContextJson.current) {
-      prevContextJson.current = json;
-      versionRef.current += 1;
-      setCurrentVersion(versionRef.current);
-      // Mark dirty if we've already had at least one state load
-      if (versionRef.current > 0) {
-        setLifecycle((prev) => prev === 'applying' ? prev : 'dirty');
-      }
+    if (structuralEqual(context, prevContextRef.current)) return;
+    prevContextRef.current = structuralClone(context);
+    versionRef.current += 1;
+    setCurrentVersion(versionRef.current);
+    // Mark dirty if we've already had at least one state load
+    if (versionRef.current > 0) {
+      setLifecycle((prev) => prev === 'applying' ? prev : 'dirty');
     }
   }, [context]);
 
@@ -295,7 +294,13 @@ export function useContextState(session: SessionData | null, executionMode?: str
     setLastError(null);
 
     try {
-      const result = await apiApplyContext(sess.id, liveMode);
+      const APPLY_TIMEOUT_MS = 15_000;
+      const result = await Promise.race([
+        apiApplyContext(sess.id, liveMode),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Context apply timed out after 15s')), APPLY_TIMEOUT_MS)
+        ),
+      ]);
 
       setInjectedVersion(result.version);
       setInjectedContent(result.content);

@@ -1229,13 +1229,29 @@ impl OutputAnalyzer {
     }
 
     fn stuck_score(&self) -> f32 {
+        // Must be in busy phase to be considered stuck
+        if !self.is_busy {
+            return 0.0;
+        }
+
         let mut score: f32 = 0.0;
-        if self.repeated_error_count >= 3 { score += 0.4; }
+
+        // Primary signal: silence duration (no output while busy)
+        if let Some(last_output) = self.last_output_at {
+            let silence_secs = last_output.elapsed().as_secs();
+            if silence_secs > 30 { score += 0.4; }
+            if silence_secs > 60 { score += 0.2; }
+        }
+
+        // Secondary signal: repeated errors (capped contribution)
         if self.repeated_error_count >= 5 { score += 0.3; }
+
+        // Tertiary signal: high error rate
         if self.line_count > 10 {
             let error_rate = self.error_count as f32 / self.line_count as f32;
-            if error_rate > 0.3 { score += 0.3; }
+            if error_rate > 0.3 { score += 0.1; }
         }
+
         score.min(1.0)
     }
 

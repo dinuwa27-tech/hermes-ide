@@ -850,3 +850,34 @@
   color: var(--text-3);
   padding: 1px 0;
 }
+
+/* ─── Advanced (collapsible diagnostics) ──────────────────── */
+
+.ctx-advanced-section {
+  border-top: 1px solid var(--border);
+  margin-top: 8px;
+  padding-top: 4px;
+}
+
+.ctx-advanced-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--text-3);
+  font-size: var(--text-sm);
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.ctx-advanced-toggle:hover { color: var(--text-1); }
+
+.ctx-advanced-body {
+  padding-top: 4px;
+}
+
+.ctx-advanced-body .ctx-kv {
+  color: var(--text-3);
+}

@@ -123,7 +123,7 @@ function AppContent() {
     const id = ui.stuckOverlaySessionId;
     if (!id) return;
     writeToSession(id, btoa("\x03")).catch(console.error);
-    dispatch({ type: "DISMISS_STUCK_OVERLAY" });
+    dispatch({ type: "DISMISS_STUCK_OVERLAY", sessionId: id });
   }, [ui.stuckOverlaySessionId, dispatch]);
 
   const handleAutoExecute = useCallback(() => {
@@ -352,7 +352,7 @@ function AppContent() {
       {stuckSession && (
         <StuckOverlay
           session={stuckSession}
-          onDismiss={() => dispatch({ type: "DISMISS_STUCK_OVERLAY" })}
+          onDismiss={() => dispatch({ type: "DISMISS_STUCK_OVERLAY", sessionId: stuckSession.id })}
           onSendCtrlC={sendCtrlC}
         />
       )}
