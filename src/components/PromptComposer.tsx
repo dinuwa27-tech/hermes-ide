@@ -2,6 +2,7 @@ import "../styles/components/PromptComposer.css";
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { getSetting, setSetting } from "../api/settings";
 import { writeToSession } from "../api/sessions";
+import { dismissSuggestions, clearGhostText } from "../terminal/TerminalPool";
 import {
   ComposerFields,
   EMPTY_FIELDS,
@@ -157,6 +158,10 @@ export function PromptComposer({ sessionId, onClose }: PromptComposerProps) {
 
   const sendPrompt = useCallback(() => {
     if (!compiled.trim()) return;
+    // Clear any active terminal intelligence state so it doesn't interfere
+    // with the submitted prompt (e.g. ghost text or suggestion overlay executing on focus)
+    dismissSuggestions(sessionId);
+    clearGhostText(sessionId);
     // Wrap in bracketed paste so CLIs treat multi-line content as a single paste,
     // then append \r to submit. Use TextEncoder for proper UTF-8 base64 encoding.
     const payload = "\x1b[200~" + compiled + "\x1b[201~" + "\r";

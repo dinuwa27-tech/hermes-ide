@@ -482,7 +482,7 @@ function acceptGhostInline(sessionId: string): void {
   });
 }
 
-function dismissSuggestions(sessionId: string): void {
+export function dismissSuggestions(sessionId: string): void {
   const entry = pool.get(sessionId);
   if (!entry) return;
   dismissSuggestionsForEntry(entry);
@@ -630,6 +630,8 @@ export function attach(sessionId: string, viewport: HTMLDivElement, autoFocus = 
   requestAnimationFrame(() => {
     try {
       entry.fitAddon.fit();
+      // Preserve scroll position at bottom after fit
+      entry.terminal.scrollToBottom();
     } catch { /* terminal may not be ready */ }
     if (autoFocus) entry.terminal.focus();
     resizeSession(sessionId, entry.terminal.rows, entry.terminal.cols).catch((err) => console.warn("[TerminalPool] Failed to resize session:", err));
@@ -672,6 +674,7 @@ export function refitActive(): void {
     if (entry.attached && entry.opened) {
       try {
         entry.fitAddon.fit();
+        entry.terminal.scrollToBottom();
       } catch { /* ignore fit errors */ }
     }
   }
