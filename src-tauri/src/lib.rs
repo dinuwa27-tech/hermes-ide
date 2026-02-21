@@ -109,6 +109,8 @@ pub fn run() {
             realm::scan_realm,
             realm::attunement::assemble_session_context,
             realm::attunement::apply_context,
+            realm::attunement::fork_session_context,
+            realm::attunement::load_hermes_project_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running HERMES-IDE");

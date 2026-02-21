@@ -350,10 +350,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         dispatch({ type: "SESSION_UPDATED", session });
 
         // Auto-attach realm on working_directory change
+        // Uses exact path match with trailing separator to prevent
+        // /home/user/app matching /home/user/app-legacy
         if (session.working_directory) {
           getRealms().then((realms) => {
             for (const realm of realms) {
-              if (session.working_directory.startsWith(realm.path)) {
+              const wd = session.working_directory;
+              const rp = realm.path;
+              const isExactOrSubdir = wd === rp || wd.startsWith(rp + "/");
+              if (isExactOrSubdir) {
                 // Check if already attached
                 getSessionRealms(session.id).then((attachedRealms) => {
                   if (!attachedRealms.some((r) => r.id === realm.id)) {

@@ -17,10 +17,15 @@ function timeAgoShort(ts: number | null): string {
 }
 
 export function ContextStatusBar({ manager, autoApplyEnabled, onToggleAutoApply }: ContextStatusBarProps) {
-  const { currentVersion, injectedVersion, lastInjectedAt, lifecycle, lastError, applyContext } = manager;
+  const { currentVersion, injectedVersion, lastInjectedAt, lifecycle, lastError, applyContext,
+          tokenBudget, estimatedTokens } = manager;
 
   const isDirty = lifecycle === 'dirty' || lifecycle === 'apply_failed';
   const isApplying = lifecycle === 'applying';
+
+  const budgetPercent = tokenBudget > 0 ? Math.min(100, Math.round((estimatedTokens / tokenBudget) * 100)) : 0;
+  const budgetWarning = budgetPercent >= 80;
+  const budgetCritical = budgetPercent >= 95;
 
   const barClass = [
     "ctx-status-bar",
@@ -62,9 +67,25 @@ export function ContextStatusBar({ manager, autoApplyEnabled, onToggleAutoApply 
             onClick={() => void applyContext()}
             disabled={lifecycle === 'clean' || lifecycle === 'applying'}
           >
-            {isApplying ? "Applying..." : "Apply Context to Conversation"}
+            {isApplying ? "Applying..." : "Apply Context"}
           </button>
         </div>
+      </div>
+
+      {/* Token budget meter */}
+      <div className="ctx-budget-row">
+        <div className="ctx-budget-bar-track">
+          <div
+            className={[
+              "ctx-budget-bar-fill",
+              budgetCritical ? "ctx-budget-bar-critical" : budgetWarning ? "ctx-budget-bar-warning" : "",
+            ].filter(Boolean).join(" ")}
+            style={{ width: `${budgetPercent}%` }}
+          />
+        </div>
+        <span className={`ctx-budget-label ${budgetCritical ? "ctx-budget-critical" : budgetWarning ? "ctx-budget-warning" : ""}`}>
+          ~{estimatedTokens.toLocaleString()} / {tokenBudget.toLocaleString()} tokens ({budgetPercent}%)
+        </span>
       </div>
 
       {/* Error message */}

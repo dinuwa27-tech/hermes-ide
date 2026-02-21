@@ -1,12 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { ContextPin, ApplyContextResult, ErrorCorrelation } from "../types";
+import type { ContextPin, ApplyContextResult, ErrorCorrelation, HermesProjectConfig } from "../types";
 
 export function getContextPins(sessionId: string, projectId: string | null): Promise<ContextPin[]> {
   return invoke<ContextPin[]>("get_context_pins", { sessionId, projectId });
 }
 
 export function addContextPin(opts: {
-  sessionId: string;
+  sessionId: string | null;
   projectId: string | null;
   kind: string;
   target: string;
@@ -35,4 +35,12 @@ export function findErrorCorrelations(opts: {
   limit: number;
 }): Promise<ErrorCorrelation[]> {
   return invoke<ErrorCorrelation[]>("find_error_correlations", opts);
+}
+
+export function forkSessionContext(sourceSessionId: string, targetSessionId: string): Promise<number> {
+  return invoke<number>("fork_session_context", { sourceSessionId, targetSessionId });
+}
+
+export function loadHermesProjectConfig(realmId: string, realmPath: string): Promise<HermesProjectConfig | null> {
+  return invoke<HermesProjectConfig | null>("load_hermes_project_config", { realmId, realmPath });
 }

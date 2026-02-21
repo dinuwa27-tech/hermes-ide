@@ -67,6 +67,8 @@ export interface ContextManager {
   lifecycle: ContextLifecycleState;
   lastError: string | null;
   injectedContent: string | null;
+  tokenBudget: number;
+  estimatedTokens: number;
   applyContext: () => Promise<void>;
   formatContext: () => string;
   copyToClipboard: () => Promise<void>;
@@ -79,4 +81,13 @@ export interface ApplyContextResult {
   nudge_sent: boolean;
   nudge_error: string | null;
   estimated_tokens: number;
+  token_budget: number;
+}
+
+/** .hermes/context.json schema as returned from the backend */
+export interface HermesProjectConfig {
+  pins: { kind: string; target: string; label?: string }[];
+  memory: { key: string; value: string }[];
+  conventions: string[];
+  token_budget?: number;
 }
