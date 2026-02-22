@@ -45,8 +45,9 @@
   background: repeating-linear-gradient(
     to bottom,
     transparent 0px, transparent 2px,
-    rgba(0, 0, 0, 0.08) 2px, rgba(0, 0, 0, 0.08) 4px
+    rgba(0, 0, 0, 1) 2px, rgba(0, 0, 0, 1) 4px
   );
+  opacity: var(--scanline-opacity);
 }
 
 /* ─── Drag & Drop ──────────────────────────────────────────────── */

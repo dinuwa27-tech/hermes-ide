@@ -6,7 +6,8 @@ import {
 } from "../api/sessions";
 import { getRealms, getSessionRealms, attachSessionRealm, nudgeRealmContext } from "../api/realms";
 import { getSettings } from "../api/settings";
-import { createTerminal, destroy as destroyTerminal, updateSettings, writeScrollback } from "../terminal/TerminalPool";
+import { createTerminal, destroy as destroyTerminal, writeScrollback } from "../terminal/TerminalPool";
+import { applyTheme } from "../utils/themeManager";
 import { initNotifications, notifyStuck, notifyLongRunningDone } from "../utils/notifications";
 import {
   LayoutNode, PaneLeaf,
@@ -465,7 +466,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // Load settings first, THEN sessions (so terminals use correct settings)
     getSettings()
       .then((s) => {
-        updateSettings(s);
+        applyTheme(s.theme || "dark", s);
         if (s.execution_mode === "assisted" || s.execution_mode === "autonomous") {
           dispatch({ type: "SET_DEFAULT_MODE", mode: s.execution_mode as ExecutionMode });
         }

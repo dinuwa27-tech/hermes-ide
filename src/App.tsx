@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, Component, type ReactNode, type ErrorInfo } from "react";
 import "./styles/layout.css";
+import "./styles/themes.css";
 import "./styles/topbar.css";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { writeToSession } from "./api/sessions";
@@ -13,6 +14,7 @@ import { CommandPalette } from "./components/CommandPalette";
 import { EmptyState } from "./components/EmptyState";
 import { StuckOverlay } from "./components/StuckOverlay";
 import { Settings } from "./components/Settings";
+import { ShortcutsPanel } from "./components/ShortcutsPanel";
 import { WorkspacePanel } from "./components/WorkspacePanel";
 import { CostDashboard } from "./components/CostDashboard";
 import { FlowToast } from "./components/FlowToast";
@@ -39,6 +41,7 @@ function AppContent() {
   const [realmPickerOpen, setRealmPickerOpen] = useState(false);
   const [sessionCreatorOpen, setSessionCreatorOpen] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const pendingSplit = useRef<{ paneId: string; direction: SplitDirection } | null>(null);
 
   // Keyboard shortcuts
@@ -106,6 +109,7 @@ function AppContent() {
         case "j": e.preventDefault(); setComposerOpen((v) => !v); break;
         case "t": e.preventDefault(); dispatch({ type: "TOGGLE_TIMELINE" }); break;
         case ",": e.preventDefault(); setSettingsOpen((v) => !v); break;
+        case "/": e.preventDefault(); setShortcutsOpen((v) => !v); break;
         case "$": e.preventDefault(); setCostDashboardOpen((v) => !v); break;
         default:
           if (e.key >= "1" && e.key <= "9") {
@@ -275,7 +279,7 @@ function AppContent() {
         )}
       </div>
 
-      <StatusBar />
+      <StatusBar onOpenShortcuts={() => setShortcutsOpen(true)} />
 
       {ui.commandPaletteOpen && (
         <CommandPalette
@@ -291,12 +295,17 @@ function AppContent() {
           onToggleFlowMode={() => dispatch({ type: "TOGGLE_FLOW_MODE" })}
           onAttachRealm={() => setRealmPickerOpen(true)}
           onOpenComposer={() => setComposerOpen(true)}
+          onOpenShortcuts={() => { setShortcutsOpen(true); }}
           onScanCwd={() => {
             if (activeSession?.working_directory) {
               createRealm(activeSession.working_directory, null).catch(console.error);
             }
           }}
         />
+      )}
+
+      {shortcutsOpen && (
+        <ShortcutsPanel onClose={() => setShortcutsOpen(false)} />
       )}
 
       {costDashboardOpen && (

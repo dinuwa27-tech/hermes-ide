@@ -1,0 +1,178 @@
+/* ─── Theme Overrides ──────────────────────────────────────────────
+ * Each block overrides the CSS custom properties defined in tokens.css.
+ * The default "dark" theme inherits from :root — no override needed.
+ * ──────────────────────────────────────────────────────────────────── */
+
+/* ─── Hacker (green phosphor CRT) ─────────────────────────────── */
+html[data-theme="hacker"] {
+  --bg-0: #0a0a0a;
+  --bg-1: #0d1a0d;
+  --bg-2: #142014;
+  --bg-3: #1a2e1a;
+  --bg-hover: #1a2e1a;
+  --bg-active: #244024;
+  --text-0: #33ff99;
+  --text-1: #29cc7a;
+  --text-2: #1a8050;
+  --text-3: #0f5030;
+  --accent: #33ff99;
+  --accent-dim: #33ff9920;
+  --green: #33ff99;
+  --green-dim: #33ff9926;
+  --red: #ff4444;
+  --red-dim: #ff444426;
+  --yellow: #ccff00;
+  --yellow-dim: #ccff0026;
+  --violet: #66ffbb;
+  --violet-dim: #66ffbb26;
+  --error: #ff4444;
+  --border: #0f2a0f;
+  --border-light: #1a3d1a;
+  --scanline-opacity: 0.15;
+  --accent-glow: 0 0 12px #33ff9944;
+}
+
+/* ─── Atelier (warm designer) ──────────────────────────────────── */
+html[data-theme="designer"] {
+  --bg-0: #1a1714;
+  --bg-1: #221e1a;
+  --bg-2: #2a2520;
+  --bg-3: #332e28;
+  --bg-hover: #332e28;
+  --bg-active: #3d3630;
+  --text-0: #e8e0d4;
+  --text-1: #c8bfb0;
+  --text-2: #8a7f72;
+  --text-3: #6b6258;
+  --accent: #e07850;
+  --accent-dim: #e0785020;
+  --green: #8fbc6a;
+  --green-dim: #8fbc6a26;
+  --red: #d95555;
+  --red-dim: #d9555526;
+  --yellow: #d4a845;
+  --yellow-dim: #d4a84526;
+  --violet: #b58bdb;
+  --violet-dim: #b58bdb26;
+  --error: #d95555;
+  --border: #2a2520;
+  --border-light: #3a3430;
+  --scanline-opacity: 0;
+  --accent-glow: none;
+}
+
+/* ─── Deep Lab (data science navy) ─────────────────────────────── */
+html[data-theme="data"] {
+  --bg-0: #0a0e1a;
+  --bg-1: #101828;
+  --bg-2: #182040;
+  --bg-3: #1e2850;
+  --bg-hover: #1e2850;
+  --bg-active: #263060;
+  --text-0: #c8d8f0;
+  --text-1: #9aacc8;
+  --text-2: #5a7090;
+  --text-3: #3a4a68;
+  --accent: #22d3ee;
+  --accent-dim: #22d3ee20;
+  --green: #34d399;
+  --green-dim: #34d39926;
+  --red: #f87171;
+  --red-dim: #f8717126;
+  --yellow: #fbbf24;
+  --yellow-dim: #fbbf2426;
+  --violet: #818cf8;
+  --violet-dim: #818cf826;
+  --error: #f87171;
+  --border: #152040;
+  --border-light: #1e2e58;
+  --scanline-opacity: 0.05;
+  --accent-glow: none;
+}
+
+/* ─── Enterprise (professional slate) ──────────────────────────── */
+html[data-theme="corporate"] {
+  --bg-0: #111418;
+  --bg-1: #181c22;
+  --bg-2: #1f2428;
+  --bg-3: #272c32;
+  --bg-hover: #272c32;
+  --bg-active: #30363e;
+  --text-0: #d4d8e0;
+  --text-1: #aab0bc;
+  --text-2: #6b7280;
+  --text-3: #4a5060;
+  --accent: #4a90d9;
+  --accent-dim: #4a90d920;
+  --green: #48c78e;
+  --green-dim: #48c78e26;
+  --red: #ef5350;
+  --red-dim: #ef535026;
+  --yellow: #f0ad4e;
+  --yellow-dim: #f0ad4e26;
+  --violet: #7c8aed;
+  --violet-dim: #7c8aed26;
+  --error: #ef5350;
+  --border: #1e2228;
+  --border-light: #282e36;
+  --scanline-opacity: 0;
+  --accent-glow: none;
+}
+
+/* ─── Night Owl (AMOLED purple) ────────────────────────────────── */
+html[data-theme="nightowl"] {
+  --bg-0: #010104;
+  --bg-1: #0a0a14;
+  --bg-2: #12121e;
+  --bg-3: #1a1a2e;
+  --bg-hover: #1a1a2e;
+  --bg-active: #22223a;
+  --text-0: #d6d6f0;
+  --text-1: #a8a8c8;
+  --text-2: #606088;
+  --text-3: #3a3a5a;
+  --accent: #a78bfa;
+  --accent-dim: #a78bfa20;
+  --green: #66e0a3;
+  --green-dim: #66e0a326;
+  --red: #ff6b6b;
+  --red-dim: #ff6b6b26;
+  --yellow: #ffd166;
+  --yellow-dim: #ffd16626;
+  --violet: #c4b5fd;
+  --violet-dim: #c4b5fd26;
+  --error: #ff6b6b;
+  --border: #14142a;
+  --border-light: #1e1e3e;
+  --scanline-opacity: 0;
+  --accent-glow: 0 0 10px #a78bfa33;
+}
+
+/* ─── Solarized Light ──────────────────────────────────────────── */
+html[data-theme="solarized"] {
+  --bg-0: #fdf6e3;
+  --bg-1: #eee8d5;
+  --bg-2: #e8e2cf;
+  --bg-3: #ddd6c1;
+  --bg-hover: #ddd6c1;
+  --bg-active: #d0c9b4;
+  --text-0: #073642;
+  --text-1: #586e75;
+  --text-2: #839496;
+  --text-3: #93a1a1;
+  --accent: #268bd2;
+  --accent-dim: #268bd233;
+  --green: #859900;
+  --green-dim: #85990026;
+  --red: #dc322f;
+  --red-dim: #dc322f26;
+  --yellow: #b58900;
+  --yellow-dim: #b5890026;
+  --violet: #6c71c4;
+  --violet-dim: #6c71c426;
+  --error: #dc322f;
+  --border: #ddd6c1;
+  --border-light: #ccc5af;
+  --scanline-opacity: 0;
+  --accent-glow: none;
+}

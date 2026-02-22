@@ -1,12 +1,13 @@
 import "../styles/components/Settings.css";
 import { useState, useEffect, useCallback } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { updateSettings as applyTerminalSettings } from "../terminal/TerminalPool";
+import { applyTheme, THEME_OPTIONS } from "../utils/themeManager";
 import { useSession } from "../state/SessionContext";
 import {
   getSettings, setSetting, exportSettings, importSettings,
   type SettingsMap,
 } from "../api/settings";
+import { SHORTCUT_GROUPS } from "./ShortcutsPanel";
 
 interface SettingsProps {
   onClose: () => void;
@@ -18,10 +19,7 @@ const PROVIDERS = [
   { id: "google", name: "Google (Gemini)", keyName: "api_key_google", models: ["gemini-2.0-flash", "gemini-2.0-pro"] },
 ];
 
-const THEMES = [
-  { id: "dark", label: "Dark (Default)" },
-  { id: "dimmed", label: "Dark Dimmed" },
-];
+const THEMES = THEME_OPTIONS;
 
 export function Settings({ onClose }: SettingsProps) {
   const [settings, setSettings] = useState<SettingsMap>({});
@@ -42,8 +40,10 @@ export function Settings({ onClose }: SettingsProps) {
   const updateSetting = useCallback((key: string, value: string) => {
     setSettings((prev) => {
       const next = { ...prev, [key]: value };
-      if (["font_size", "font_family", "scrollback", "theme"].includes(key)) {
-        applyTerminalSettings(next);
+      if (key === "theme") {
+        applyTheme(value, next);
+      } else if (["font_size", "font_family", "scrollback"].includes(key)) {
+        applyTheme(next.theme || "dark", next);
       }
       return next;
     });
@@ -68,6 +68,7 @@ export function Settings({ onClose }: SettingsProps) {
     { id: "appearance", label: "Appearance" },
     { id: "providers", label: "Providers" },
     { id: "autonomous", label: "Autonomous" },
+    { id: "shortcuts", label: "Shortcuts" },
   ];
 
   return (
@@ -229,6 +230,25 @@ export function Settings({ onClose }: SettingsProps) {
               </div>
             )}
 
+            {activeTab === "shortcuts" && (
+              <div className="settings-section">
+                <p className="settings-hint">
+                  All available keyboard shortcuts. Customization coming soon.
+                </p>
+                {SHORTCUT_GROUPS.map((group) => (
+                  <div key={group.label} className="settings-shortcut-group">
+                    <div className="settings-shortcut-group-label">{group.label}</div>
+                    {group.shortcuts.map((s) => (
+                      <div key={s.keys} className="settings-shortcut-row">
+                        <span className="settings-shortcut-action">{s.action}</span>
+                        <kbd className="settings-shortcut-kbd">{s.keys}</kbd>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+
             {activeTab === "autonomous" && (
               <div className="settings-section">
                 <p className="settings-hint">
@@ -302,7 +322,7 @@ export function Settings({ onClose }: SettingsProps) {
                 try {
                   const newSettings = await importSettings(path);
                   setSettings(newSettings);
-                  applyTerminalSettings(newSettings);
+                  applyTheme(newSettings.theme || "dark", newSettings);
                 } catch (e) {
                   console.error(e);
                 }

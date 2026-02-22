@@ -17,7 +17,11 @@ function formatElapsed(createdAt: string): string {
   return `${Math.floor(diff / 86400)}d`;
 }
 
-export function StatusBar() {
+interface StatusBarProps {
+  onOpenShortcuts?: () => void;
+}
+
+export function StatusBar({ onOpenShortcuts }: StatusBarProps) {
   const active = useActiveSession();
   const sessions = useSessionList();
   const totalCost = useTotalCost();
@@ -113,7 +117,17 @@ export function StatusBar() {
             <span className="status-bar-item status-bar-elapsed">{formatElapsed(active.created_at)}</span>
             <span className="status-bar-divider" />
             <span className="status-bar-item mono" title={active.working_directory}>{cwdBasename}</span>
+            <span className="status-bar-divider" />
           </>
+        )}
+        {onOpenShortcuts && (
+          <button
+            className="status-shortcuts-btn"
+            onClick={onOpenShortcuts}
+            title="Keyboard Shortcuts (⌘/)"
+          >
+            ⌨
+          </button>
         )}
       </div>
     </div>
