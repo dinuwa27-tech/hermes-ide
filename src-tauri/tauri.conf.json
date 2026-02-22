@@ -40,7 +40,21 @@
       "icons/icon.ico"
     ],
     "macOS": {
-      "minimumSystemVersion": "13.0"
+      "minimumSystemVersion": "13.0",
+      "dmg": {
+        "windowSize": {
+          "width": 720,
+          "height": 480
+        },
+        "appPosition": {
+          "x": 200,
+          "y": 240
+        },
+        "applicationFolderPosition": {
+          "x": 520,
+          "y": 240
+        }
+      }
     }
   }
 }

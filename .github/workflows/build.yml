@@ -24,14 +24,7 @@ jobs:
 
   build:
     needs: test
-    strategy:
-      matrix:
-        include:
-          - runner: macos-14
-            target: aarch64-apple-darwin
-          - runner: macos-13
-            target: x86_64-apple-darwin
-    runs-on: ${{ matrix.runner }}
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
 
@@ -49,10 +42,10 @@ jobs:
       - run: npm ci
 
       - name: Build Tauri app
-        run: npx tauri build --target ${{ matrix.target }}
+        run: npx tauri build --target aarch64-apple-darwin
 
       - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:
-          name: hermes-ide-${{ matrix.target }}
-          path: src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+          name: hermes-ide-aarch64-apple-darwin
+          path: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
