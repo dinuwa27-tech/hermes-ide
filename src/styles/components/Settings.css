@@ -127,56 +127,73 @@
   margin-bottom: 4px;
 }
 
-.settings-provider {
-  padding: var(--space-3);
+.settings-size-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-stepper {
+  display: flex;
+  align-items: center;
   background: var(--bg-2);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  overflow: hidden;
+}
+.settings-stepper:focus-within {
+  border-color: var(--accent);
 }
 
-.settings-provider-header {
+.settings-stepper-btn {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-}
-
-.settings-provider-name {
-  font-size: var(--text-lg);
-  font-weight: 600;
-  color: var(--text-0);
-}
-
-.settings-provider-status {
-  font-size: var(--text-sm);
-  color: var(--green);
-  background: var(--green-dim);
-  padding: 2px 8px;
-  border-radius: var(--radius-sm);
-  font-weight: 500;
-}
-
-.settings-key-row {
-  display: flex;
-  gap: 6px;
-}
-
-.settings-key-input { flex: 1; }
-
-.settings-key-clear {
-  background: var(--bg-3);
-  border: 1px solid var(--border);
+  justify-content: center;
+  width: 24px;
+  flex-shrink: 0;
+  font-size: 10px;
   color: var(--text-2);
-  padding: 6px 12px;
-  border-radius: var(--radius);
+  background: var(--bg-3);
+  border: none;
   cursor: pointer;
-  font-size: var(--text-md);
-  font-family: var(--font-ui);
-  transition: background 0.1s, color 0.1s, border-color 0.1s;
+  user-select: none;
+  touch-action: none;
+  align-self: stretch;
+  padding: 0;
+  transition: color 0.1s, background 0.1s;
 }
-.settings-key-clear:hover { background: var(--red-dim); color: var(--red); border-color: var(--red); }
+.settings-stepper-btn:hover {
+  color: var(--text-0);
+  background: var(--bg-active);
+}
+.settings-stepper-btn:active {
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.settings-stepper-input {
+  width: 56px;
+  text-align: center;
+  border: none;
+  background: transparent;
+  color: var(--text-0);
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
+  padding: 6px 2px;
+  outline: none;
+}
+.settings-stepper-input::placeholder { color: var(--text-3); }
+
+.settings-size-separator {
+  color: var(--text-3);
+  font-size: var(--text-md);
+}
+
+.settings-size-unit {
+  color: var(--text-3);
+  font-size: var(--text-sm);
+  margin-left: -2px;
+}
 
 .settings-footer {
   display: flex;

@@ -9,7 +9,7 @@ interface CommandPaletteProps {
   onNewSession: () => void;
   onToggleContext: () => void;
   onToggleSessions: () => void;
-  onOpenSettings: () => void;
+  onOpenSettings: (tab?: string) => void;
   onOpenWorkspace: () => void;
   onOpenCostDashboard?: () => void;
   onToggleFlowMode?: () => void;
@@ -24,6 +24,7 @@ interface Command {
   label: string;
   category: string;
   shortcut?: string;
+  hidden?: boolean;
   action: () => void;
 }
 
@@ -39,6 +40,11 @@ export function CommandPalette({
     { id: "ctx", label: "Toggle Context Panel", category: "View", shortcut: "⌘E", action: () => { onToggleContext(); onClose(); } },
     { id: "sidebar", label: "Toggle Session List", category: "View", shortcut: "⌘B", action: () => { onToggleSessions(); onClose(); } },
     { id: "settings", label: "Settings", category: "App", shortcut: "⌘,", action: () => { onOpenSettings(); onClose(); } },
+    { id: "settings-general", label: "Settings / General", category: "Settings", hidden: true, action: () => { onOpenSettings("general"); onClose(); } },
+    { id: "settings-appearance", label: "Settings / Appearance", category: "Settings", hidden: true, action: () => { onOpenSettings("appearance"); onClose(); } },
+    { id: "settings-theme", label: "Settings / Theme", category: "Settings", hidden: true, action: () => { onOpenSettings("appearance"); onClose(); } },
+    { id: "settings-autonomous", label: "Settings / Autonomous", category: "Settings", hidden: true, action: () => { onOpenSettings("autonomous"); onClose(); } },
+    { id: "settings-shortcuts", label: "Settings / Shortcuts", category: "Settings", hidden: true, action: () => { onOpenSettings("shortcuts"); onClose(); } },
     { id: "workspace", label: "Projects", category: "App", action: () => { onOpenWorkspace(); onClose(); } },
     ...(onOpenCostDashboard ? [{ id: "cost-dashboard", label: "Cost Dashboard", category: "App", shortcut: "⌘⇧D", action: () => { onOpenCostDashboard(); onClose(); } }] : []),
     ...(onToggleFlowMode ? [{ id: "flow-mode", label: "Toggle Flow Mode", category: "View", shortcut: "⌘⇧F", action: () => { onToggleFlowMode(); onClose(); } }] : []),
@@ -55,10 +61,11 @@ export function CommandPalette({
     })),
   ], [sessions, onNewSession, onClose, onToggleContext, onToggleSessions, onSelectSession, onOpenSettings, onOpenWorkspace, onOpenCostDashboard, onToggleFlowMode, onAttachRealm, onScanCwd, onOpenComposer, onOpenShortcuts]);
 
-  const filtered = useMemo(() => query
-    ? commands.filter((c) => c.label.toLowerCase().includes(query.toLowerCase()) || c.category.toLowerCase().includes(query.toLowerCase()))
-    : commands,
-  [query, commands]);
+  const filtered = useMemo(() => {
+    if (!query) return commands.filter((c) => !c.hidden);
+    const q = query.toLowerCase();
+    return commands.filter((c) => c.label.toLowerCase().includes(q) || c.category.toLowerCase().includes(q));
+  }, [query, commands]);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
   useEffect(() => { setSelectedIndex(0); }, [query]);

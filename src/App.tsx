@@ -35,7 +35,7 @@ function AppContent() {
   const sessions = useSessionList();
   const { ui } = state;
   const autoSettings = useAutonomousSettings();
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState<string | null>(null);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [costDashboardOpen, setCostDashboardOpen] = useState(false);
   const [realmPickerOpen, setRealmPickerOpen] = useState(false);
@@ -108,7 +108,7 @@ function AppContent() {
         case "b": e.preventDefault(); dispatch({ type: "TOGGLE_SIDEBAR" }); break;
         case "j": e.preventDefault(); setComposerOpen((v) => !v); break;
         case "t": e.preventDefault(); dispatch({ type: "TOGGLE_TIMELINE" }); break;
-        case ",": e.preventDefault(); setSettingsOpen((v) => !v); break;
+        case ",": e.preventDefault(); setSettingsOpen((v) => v ? null : "general"); break;
         case "/": e.preventDefault(); setShortcutsOpen((v) => !v); break;
         case "$": e.preventDefault(); setCostDashboardOpen((v) => !v); break;
         default:
@@ -289,7 +289,7 @@ function AppContent() {
           onNewSession={() => setSessionCreatorOpen(true)}
           onToggleContext={() => dispatch({ type: "TOGGLE_CONTEXT" })}
           onToggleSessions={() => dispatch({ type: "TOGGLE_SIDEBAR" })}
-          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenSettings={(tab) => setSettingsOpen(tab || "general")}
           onOpenWorkspace={() => setWorkspaceOpen(true)}
           onOpenCostDashboard={() => setCostDashboardOpen(true)}
           onToggleFlowMode={() => dispatch({ type: "TOGGLE_FLOW_MODE" })}
@@ -313,7 +313,7 @@ function AppContent() {
       )}
 
       {settingsOpen && (
-        <Settings onClose={() => setSettingsOpen(false)} />
+        <Settings onClose={() => setSettingsOpen(null)} initialTab={settingsOpen} />
       )}
 
       {workspaceOpen && (

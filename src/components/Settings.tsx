@@ -1,6 +1,8 @@
 import "../styles/components/Settings.css";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { LogicalSize } from "@tauri-apps/api/dpi";
 import { applyTheme, THEME_OPTIONS } from "../utils/themeManager";
 import { useSession } from "../state/SessionContext";
 import {
@@ -11,24 +13,48 @@ import { SHORTCUT_GROUPS } from "./ShortcutsPanel";
 
 interface SettingsProps {
   onClose: () => void;
+  initialTab?: string;
 }
-
-const PROVIDERS = [
-  { id: "anthropic", name: "Anthropic (Claude)", keyName: "api_key_anthropic", models: ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-haiku-4-5-20251001"] },
-  { id: "openai", name: "OpenAI", keyName: "api_key_openai", models: ["gpt-4o", "gpt-4", "o1-preview", "o1-mini"] },
-  { id: "google", name: "Google (Gemini)", keyName: "api_key_google", models: ["gemini-2.0-flash", "gemini-2.0-pro"] },
-];
 
 const THEMES = THEME_OPTIONS;
 
-export function Settings({ onClose }: SettingsProps) {
+export function Settings({ onClose, initialTab }: SettingsProps) {
   const [settings, setSettings] = useState<SettingsMap>({});
-  const [activeTab, setActiveTab] = useState("general");
+  const [activeTab, setActiveTab] = useState(initialTab || "general");
   const { dispatch } = useSession();
+
+  // Live window size state (separate from DB settings)
+  const [winWidth, setWinWidth] = useState("");
+  const [winHeight, setWinHeight] = useState("");
+  const resizeUnlisten = useRef<(() => void) | null>(null);
+  const programmaticResize = useRef(false);
+  const applyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     getSettings()
       .then((s) => setSettings(s))
       .catch(console.error);
+
+    // Read live window size
+    const win = getCurrentWindow();
+    const readSize = async () => {
+      if (programmaticResize.current) return;
+      const size = await win.innerSize();
+      const factor = await win.scaleFactor();
+      setWinWidth(String(Math.round(size.width / factor)));
+      setWinHeight(String(Math.round(size.height / factor)));
+    };
+    readSize();
+
+    // Track live resizes while Settings is open
+    win.onResized(() => { readSize(); }).then((unlisten) => {
+      resizeUnlisten.current = unlisten;
+    });
+
+    return () => {
+      resizeUnlisten.current?.();
+      if (applyTimer.current) clearTimeout(applyTimer.current);
+    };
   }, []);
 
   const AUTONOMOUS_KEYS: Record<string, string> = {
@@ -38,15 +64,13 @@ export function Settings({ onClose }: SettingsProps) {
   };
 
   const updateSetting = useCallback((key: string, value: string) => {
-    setSettings((prev) => {
-      const next = { ...prev, [key]: value };
-      if (key === "theme") {
-        applyTheme(value, next);
-      } else if (["font_size", "font_family", "scrollback"].includes(key)) {
-        applyTheme(next.theme || "dark", next);
-      }
-      return next;
-    });
+    const next = { ...settings, [key]: value };
+    setSettings(next);
+    if (key === "theme") {
+      applyTheme(value, next);
+    } else if (["font_size", "font_family", "scrollback"].includes(key)) {
+      applyTheme(next.theme || "dark", next);
+    }
     setSetting(key, value).catch(console.error);
     // Sync autonomous settings to live state
     if (key in AUTONOMOUS_KEYS) {
@@ -55,18 +79,63 @@ export function Settings({ onClose }: SettingsProps) {
         settings: { [AUTONOMOUS_KEYS[key]]: parseInt(value, 10) || 0 },
       });
     }
-  }, [dispatch]);
+  }, [settings, dispatch]);
 
-  const maskKey = (key: string | undefined) => {
-    if (!key) return "";
-    if (key.length <= 8) return "****";
-    return key.slice(0, 4) + "..." + key.slice(-4);
-  };
+  const applyWindowSize = useCallback((widthStr: string, heightStr: string, immediate = false) => {
+    if (applyTimer.current) clearTimeout(applyTimer.current);
+    const delay = immediate ? 0 : 400;
+    applyTimer.current = setTimeout(async () => {
+      const w = Math.max(parseInt(widthStr, 10) || 0, 600);
+      const h = Math.max(parseInt(heightStr, 10) || 0, 400);
+      if (w > 0 && h > 0) {
+        programmaticResize.current = true;
+        try {
+          await getCurrentWindow().setSize(new LogicalSize(w, h));
+          setSetting("window_width", String(w)).catch(console.error);
+          setSetting("window_height", String(h)).catch(console.error);
+        } catch {
+          /* ignore */
+        } finally {
+          setTimeout(() => { programmaticResize.current = false; }, 300);
+        }
+      }
+    }, delay);
+  }, []);
+
+  const latestW = useRef(winWidth);
+  const latestH = useRef(winHeight);
+  latestW.current = winWidth;
+  latestH.current = winHeight;
+
+  const stepValue = useCallback((field: "w" | "h", delta: number) => {
+    const current = parseInt(field === "w" ? latestW.current : latestH.current, 10) || 0;
+    const min = field === "w" ? 600 : 400;
+    const newVal = String(Math.max(current + delta, min));
+    if (field === "w") {
+      setWinWidth(newVal);
+      applyWindowSize(newVal, latestH.current, true);
+    } else {
+      setWinHeight(newVal);
+      applyWindowSize(latestW.current, newVal, true);
+    }
+  }, [applyWindowSize]);
+
+  // Hold-to-repeat for arrow buttons
+  const repeatTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startRepeat = useCallback((field: "w" | "h", delta: number) => {
+    stepValue(field, delta);
+    const timeout = setTimeout(() => {
+      repeatTimer.current = setInterval(() => stepValue(field, delta), 60);
+    }, 350);
+    repeatTimer.current = timeout as unknown as ReturnType<typeof setInterval>;
+  }, [stepValue]);
+  const stopRepeat = useCallback(() => {
+    if (repeatTimer.current) { clearInterval(repeatTimer.current); clearTimeout(repeatTimer.current as unknown as ReturnType<typeof setTimeout>); repeatTimer.current = null; }
+  }, []);
 
   const tabs = [
     { id: "general", label: "General" },
     { id: "appearance", label: "Appearance" },
-    { id: "providers", label: "Providers" },
     { id: "autonomous", label: "Autonomous" },
     { id: "shortcuts", label: "Shortcuts" },
   ];
@@ -177,56 +246,58 @@ export function Settings({ onClose }: SettingsProps) {
                     <option value="menlo">Menlo</option>
                   </select>
                 </div>
-              </div>
-            )}
 
-            {activeTab === "providers" && (
-              <div className="settings-section">
-                <p className="settings-hint">
-                  API keys are stored locally and never sent to HERMES-IDE servers.
-                </p>
-                {PROVIDERS.map((provider) => (
-                  <div key={provider.id} className="settings-provider">
-                    <div className="settings-provider-header">
-                      <span className="settings-provider-name">{provider.name}</span>
-                      {settings[provider.keyName] && (
-                        <span className="settings-provider-status">Configured</span>
-                      )}
+                <div className="settings-group">
+                  <label className="settings-label">Window Size</label>
+                  <div className="settings-size-row">
+                    <div className="settings-stepper">
+                      <button
+                        className="settings-stepper-btn"
+                        onPointerDown={() => startRepeat("w", -10)}
+                        onPointerUp={stopRepeat}
+                        onPointerLeave={stopRepeat}
+                      >&#9666;</button>
+                      <input
+                        className="settings-stepper-input"
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="1200"
+                        value={winWidth}
+                        onChange={(e) => { setWinWidth(e.target.value); applyWindowSize(e.target.value, winHeight); }}
+                      />
+                      <button
+                        className="settings-stepper-btn"
+                        onPointerDown={() => startRepeat("w", 10)}
+                        onPointerUp={stopRepeat}
+                        onPointerLeave={stopRepeat}
+                      >&#9656;</button>
                     </div>
-                    <div className="settings-group">
-                      <label className="settings-label">API Key</label>
-                      <div className="settings-key-row">
-                        <input
-                          className="settings-input settings-key-input"
-                          type="password"
-                          placeholder={settings[provider.keyName] ? maskKey(settings[provider.keyName]) : "sk-..."}
-                          onBlur={(e) => {
-                            if (e.target.value) updateSetting(provider.keyName, e.target.value);
-                          }}
-                        />
-                        {settings[provider.keyName] && (
-                          <button
-                            className="settings-key-clear"
-                            onClick={() => updateSetting(provider.keyName, "")}
-                          >Clear</button>
-                        )}
-                      </div>
+                    <span className="settings-size-separator">&times;</span>
+                    <div className="settings-stepper">
+                      <button
+                        className="settings-stepper-btn"
+                        onPointerDown={() => startRepeat("h", -10)}
+                        onPointerUp={stopRepeat}
+                        onPointerLeave={stopRepeat}
+                      >&#9666;</button>
+                      <input
+                        className="settings-stepper-input"
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="800"
+                        value={winHeight}
+                        onChange={(e) => { setWinHeight(e.target.value); applyWindowSize(winWidth, e.target.value); }}
+                      />
+                      <button
+                        className="settings-stepper-btn"
+                        onPointerDown={() => startRepeat("h", 10)}
+                        onPointerUp={stopRepeat}
+                        onPointerLeave={stopRepeat}
+                      >&#9656;</button>
                     </div>
-                    <div className="settings-group">
-                      <label className="settings-label">Default Model</label>
-                      <select
-                        className="settings-select"
-                        value={settings[`model_${provider.id}`] || ""}
-                        onChange={(e) => updateSetting(`model_${provider.id}`, e.target.value)}
-                      >
-                        <option value="">Auto-detect</option>
-                        {provider.models.map((m) => (
-                          <option key={m} value={m}>{m}</option>
-                        ))}
-                      </select>
-                    </div>
+                    <span className="settings-size-unit">px</span>
                   </div>
-                ))}
+                </div>
               </div>
             )}
 
