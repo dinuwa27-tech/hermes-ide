@@ -1,14 +1,14 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { SessionData } from "../state/SessionContext";
-import { getContextPins, getErrorResolutions, applyContext as apiApplyContext } from "../api/context";
+import { getContextPins, applyContext as apiApplyContext } from "../api/context";
 import { assembleSessionContext } from "../api/realms";
 import { getAllMemory } from "../api/memory";
 import { structuralEqual, structuralClone } from "../utils/structuralEqual";
 
 // ─── Re-export shared types for backward compatibility ──────────────
 export type {
-  ContextPin, RealmContextInfo, ErrorResolution,
+  ContextPin, RealmContextInfo,
   ContextState, ContextLifecycleState, ContextManager, ApplyContextResult,
 } from "../types/context";
 
@@ -29,9 +29,6 @@ function emptyContext(): ContextState {
     workingDirectory: "",
     agent: null,
     model: null,
-    errorResolutions: [],
-    filesTouched: [],
-    recentErrors: [],
   };
 }
 
@@ -91,25 +88,12 @@ export function formatContextMarkdown(ctx: ContextState, version: number, execut
     lines.push("");
   }
 
-  // Error Resolutions
-  if (ctx.errorResolutions.length > 0) {
-    lines.push("## Known Error Resolutions");
-    for (const er of ctx.errorResolutions) {
-      lines.push(`- "${er.fingerprint}" -> ${er.resolution} (seen ${er.occurrence_count}x)`);
-    }
-    lines.push("");
-  }
-
   // Workspace
   lines.push("## Workspace");
   lines.push(`- Dir: ${ctx.workingDirectory}`);
   for (const p of ctx.workspacePaths) {
     lines.push(`- + ${p}`);
   }
-  if (ctx.filesTouched.length > 0) {
-    lines.push(`- Files touched: ${ctx.filesTouched.join(", ")}`);
-  }
-
   return lines.join("\n");
 }
 
@@ -151,21 +135,11 @@ export function useContextState(session: SessionData | null, executionMode?: str
       initial.agent = session.detected_agent?.name ?? null;
       initial.model = session.detected_agent?.model ?? null;
       initial.memoryFacts = session.metrics.memory_facts;
-      initial.filesTouched = session.metrics.files_touched;
-      initial.recentErrors = session.metrics.recent_errors;
 
       // Fetch pins (session + project-scoped)
       try {
         initial.pinnedItems = await getContextPins(session.id, null);
       } catch (err) { console.warn("[useContextState] Failed to load pins:", err); }
-
-      // Fetch error resolutions
-      try {
-        const patterns = await getErrorResolutions(session.working_directory, 10);
-        initial.errorResolutions = patterns
-          .filter((p) => p.resolution)
-          .map((p) => ({ fingerprint: p.fingerprint, resolution: p.resolution!, occurrence_count: p.occurrence_count }));
-      } catch (err) { console.warn("[useContextState] Failed to load error resolutions:", err); }
 
       // Fetch realm context (includes token budget and estimated tokens)
       try {
@@ -211,8 +185,6 @@ export function useContextState(session: SessionData | null, executionMode?: str
       agent: session.detected_agent?.name ?? null,
       model: session.detected_agent?.model ?? null,
       mf: session.metrics.memory_facts,
-      ft: session.metrics.files_touched,
-      re: session.metrics.recent_errors,
     });
     if (key === prevSyncKeyRef.current) return; // no real change — skip
     prevSyncKeyRef.current = key;
@@ -223,8 +195,6 @@ export function useContextState(session: SessionData | null, executionMode?: str
       agent: session.detected_agent?.name ?? null,
       model: session.detected_agent?.model ?? null,
       memoryFacts: session.metrics.memory_facts,
-      filesTouched: session.metrics.files_touched,
-      recentErrors: session.metrics.recent_errors,
     }));
   }, [session]); // eslint-disable-line react-hooks/exhaustive-deps
 

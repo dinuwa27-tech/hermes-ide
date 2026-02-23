@@ -24,9 +24,6 @@ interface MockContextState {
   workingDirectory: string;
   agent: string | null;
   model: string | null;
-  errorResolutions: unknown[];
-  filesTouched: string[];
-  recentErrors: string[];
 }
 
 function emptyContext(): MockContextState {
@@ -39,9 +36,6 @@ function emptyContext(): MockContextState {
     workingDirectory: "",
     agent: null,
     model: null,
-    errorResolutions: [],
-    filesTouched: [],
-    recentErrors: [],
   };
 }
 
@@ -112,8 +106,8 @@ describe("Context injection sync: apply absorbs drift", () => {
     sm.applyContext();
     expect(sm.getState().lifecycle).toBe("clean");
 
-    // Simulate AI response changing metrics (files_touched updated via session sync)
-    sm.setContext((prev) => ({ ...prev, filesTouched: ["main.ts"] }));
+    // Simulate AI response changing metrics (workspacePaths updated via session sync)
+    sm.setContext((prev) => ({ ...prev, workspacePaths: ["/extra"] }));
 
     // Without the fix, this would be "dirty". With the fix, context changed
     // so it correctly becomes dirty — but the key insight is that the
@@ -125,10 +119,10 @@ describe("Context injection sync: apply absorbs drift", () => {
     sm.applyContext();
     expect(sm.getState().lifecycle).toBe("clean");
 
-    // Replay the same metric data (same files_touched) — no change
+    // Replay the same data (same workspacePaths) — no change
     sm.setContext((prev) => {
-      if (structuralEqual(prev.filesTouched, ["main.ts"])) return prev;
-      return { ...prev, filesTouched: ["main.ts"] };
+      if (structuralEqual(prev.workspacePaths, ["/extra"])) return prev;
+      return { ...prev, workspacePaths: ["/extra"] };
     });
 
     // Should stay clean because structuralEqual returns true
@@ -161,7 +155,7 @@ describe("Context injection sync: apply absorbs drift", () => {
     const sm = createContextStateMachine();
 
     // Initial load and apply
-    const initial = { ...emptyContext(), workingDirectory: "/project", filesTouched: ["a.ts"] };
+    const initial = { ...emptyContext(), workingDirectory: "/project", workspacePaths: ["/a"] };
     sm.setContext(initial);
     sm.applyContext();
     expect(sm.getState().lifecycle).toBe("clean");
@@ -171,7 +165,7 @@ describe("Context injection sync: apply absorbs drift", () => {
       const next = {
         ...prev,
         workingDirectory: "/project",
-        filesTouched: ["a.ts"],
+        workspacePaths: ["/a"],
       };
       if (structuralEqual(prev, next)) return prev;
       return next;
@@ -258,32 +252,32 @@ describe("Context injection sync: pin listener guard", () => {
 // ─── Tests: Session sync with structuralEqual guard ──────────────────
 
 describe("Context injection sync: session sync metric guard", () => {
-  it("session update with identical metrics does not create new context", () => {
-    const ctx = { ...emptyContext(), filesTouched: ["a.ts"], recentErrors: ["err1"] };
+  it("session update with identical data does not create new context", () => {
+    const ctx = { ...emptyContext(), workspacePaths: ["/a"], agent: "anthropic" };
 
     // Simulate session sync effect with guard
-    const syncUpdate = (prev: typeof ctx, sessionMetrics: { filesTouched: string[]; recentErrors: string[] }) => {
-      const next = { ...prev, ...sessionMetrics };
+    const syncUpdate = (prev: typeof ctx, updates: { workspacePaths: string[]; agent: string }) => {
+      const next = { ...prev, ...updates };
       if (structuralEqual(prev, next)) return prev;
       return next;
     };
 
-    const result = syncUpdate(ctx, { filesTouched: ["a.ts"], recentErrors: ["err1"] });
+    const result = syncUpdate(ctx, { workspacePaths: ["/a"], agent: "anthropic" });
     // structuralEqual should detect no change, but since we spread (creating new obj),
     // the guard on the version tracking effect is what catches this
     expect(structuralEqual(ctx, result)).toBe(true);
   });
 
-  it("session update with new metric values creates new context", () => {
-    const ctx = { ...emptyContext(), filesTouched: ["a.ts"], recentErrors: [] as string[] };
+  it("session update with new values creates new context", () => {
+    const ctx = { ...emptyContext(), workspacePaths: ["/a"] };
 
-    const syncUpdate = (prev: typeof ctx, sessionMetrics: { filesTouched: string[]; recentErrors: string[] }) => {
-      const next = { ...prev, ...sessionMetrics };
+    const syncUpdate = (prev: typeof ctx, updates: { workspacePaths: string[] }) => {
+      const next = { ...prev, ...updates };
       if (structuralEqual(prev, next)) return prev;
       return next;
     };
 
-    const result = syncUpdate(ctx, { filesTouched: ["a.ts", "b.ts"], recentErrors: [] });
+    const result = syncUpdate(ctx, { workspacePaths: ["/a", "/b"] });
     expect(structuralEqual(ctx, result)).toBe(false);
   });
 });

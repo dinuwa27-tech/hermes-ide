@@ -52,9 +52,6 @@ export interface ContextState {
   workingDirectory: string;
   agent: string | null;
   model: string | null;
-  errorResolutions: ErrorResolution[];
-  filesTouched: string[];
-  recentErrors: string[];
 }
 
 export type ContextLifecycleState = 'clean' | 'dirty' | 'applying' | 'apply_failed';

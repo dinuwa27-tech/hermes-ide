@@ -128,9 +128,6 @@ describe("FIX 2 — executionMode removed from ContextState, lives in formatCont
     workingDirectory: "/home/user/project",
     agent: "anthropic",
     model: "claude-sonnet",
-    errorResolutions: [],
-    filesTouched: [],
-    recentErrors: [],
   };
 
   it("ContextState interface does NOT have executionMode property", () => {

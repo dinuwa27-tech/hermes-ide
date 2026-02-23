@@ -105,9 +105,6 @@ function makeBaseContext(overrides?: Partial<ContextState>): ContextState {
     workingDirectory: "/home/user/project",
     agent: "anthropic",
     model: "claude-sonnet",
-    errorResolutions: [],
-    filesTouched: [],
-    recentErrors: [],
     ...overrides,
   };
 }
@@ -562,8 +559,6 @@ describe("Bug 9: Session sync key stability", () => {
       agent: session.detected_agent?.name ?? null,
       model: session.detected_agent?.model ?? null,
       mf: session.metrics.memory_facts,
-      ft: session.metrics.files_touched,
-      re: session.metrics.recent_errors,
     });
     const key2 = JSON.stringify({
       wd: session.working_directory,
@@ -571,8 +566,6 @@ describe("Bug 9: Session sync key stability", () => {
       agent: session.detected_agent?.name ?? null,
       model: session.detected_agent?.model ?? null,
       mf: session.metrics.memory_facts,
-      ft: session.metrics.files_touched,
-      re: session.metrics.recent_errors,
     });
     expect(key1).toBe(key2);
   });
@@ -580,28 +573,23 @@ describe("Bug 9: Session sync key stability", () => {
   it("different array instances with same values produce identical JSON keys", () => {
     const session1 = makeSession({
       workspace_paths: ["/path/a", "/path/b"],
-      metrics: { ...makeSession().metrics, files_touched: ["a.ts", "b.ts"] },
     });
     // Simulate a new SESSION_UPDATED event with fresh array instances
     const session2 = makeSession({
       workspace_paths: ["/path/a", "/path/b"],
-      metrics: { ...makeSession().metrics, files_touched: ["a.ts", "b.ts"] },
     });
 
     // Reference equality fails (this is why the original code was buggy)
     expect(session1.workspace_paths).not.toBe(session2.workspace_paths);
-    expect(session1.metrics.files_touched).not.toBe(session2.metrics.files_touched);
 
     // But JSON serialization produces identical keys (this is the fix)
     const key1 = JSON.stringify({
       wd: session1.working_directory,
       wp: session1.workspace_paths,
-      ft: session1.metrics.files_touched,
     });
     const key2 = JSON.stringify({
       wd: session2.working_directory,
       wp: session2.workspace_paths,
-      ft: session2.metrics.files_touched,
     });
     expect(key1).toBe(key2);
   });
@@ -609,20 +597,16 @@ describe("Bug 9: Session sync key stability", () => {
   it("actually changed values produce different JSON keys", () => {
     const session1 = makeSession({
       workspace_paths: ["/path/a"],
-      metrics: { ...makeSession().metrics, files_touched: ["a.ts"] },
     });
     const session2 = makeSession({
       workspace_paths: ["/path/a", "/path/b"],
-      metrics: { ...makeSession().metrics, files_touched: ["a.ts", "b.ts"] },
     });
 
     const key1 = JSON.stringify({
       wp: session1.workspace_paths,
-      ft: session1.metrics.files_touched,
     });
     const key2 = JSON.stringify({
       wp: session2.workspace_paths,
-      ft: session2.metrics.files_touched,
     });
     expect(key1).not.toBe(key2);
   });
@@ -807,13 +791,7 @@ describe("Regression: formatContextMarkdown still works correctly", () => {
         conventions: ["Use camelCase"], scan_status: "deep",
       }],
       persistedMemory: [{ key: "db_host", value: "localhost", source: "user" }],
-      errorResolutions: [{
-        fingerprint: "TypeError: cannot read",
-        resolution: "check null",
-        occurrence_count: 3,
-      }],
       workspacePaths: ["/extra"],
-      filesTouched: ["index.ts"],
     });
 
     const output = formatContextMarkdown(ctx, 5, "assisted");
@@ -824,7 +802,6 @@ describe("Regression: formatContextMarkdown still works correctly", () => {
     expect(output).toContain("## Projects");
     expect(output).toContain("## Pinned Context");
     expect(output).toContain("## Memory");
-    expect(output).toContain("## Known Error Resolutions");
     expect(output).toContain("## Workspace");
   });
 
@@ -835,7 +812,6 @@ describe("Regression: formatContextMarkdown still works correctly", () => {
     expect(output).not.toContain("## Projects");
     expect(output).not.toContain("## Pinned Context");
     expect(output).not.toContain("## Memory");
-    expect(output).not.toContain("## Known Error Resolutions");
     expect(output).toContain("## Workspace");
   });
 });

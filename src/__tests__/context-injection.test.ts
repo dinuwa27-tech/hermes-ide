@@ -55,9 +55,6 @@ function makeBaseContext(overrides?: Partial<ContextState>): ContextState {
     workingDirectory: "/home/user/project",
     agent: "anthropic",
     model: "claude-sonnet",
-    errorResolutions: [],
-    filesTouched: [],
-    recentErrors: [],
     ...overrides,
   };
 }
@@ -413,21 +410,6 @@ describe("Suite 5: Injection Formatting", () => {
     expect(output).toContain("Conventions: Use camelCase");
   });
 
-  it("formatContextMarkdown includes error resolutions", () => {
-    const ctx = makeBaseContext({
-      errorResolutions: [{
-        fingerprint: "TypeError: undefined is not a function",
-        resolution: "npm install",
-        occurrence_count: 5,
-      }],
-    });
-    const output = formatContextMarkdown(ctx, 1, "manual");
-    expect(output).toContain("## Known Error Resolutions");
-    expect(output).toContain('TypeError: undefined is not a function');
-    expect(output).toContain("npm install");
-    expect(output).toContain("seen 5x");
-  });
-
   it("formatContextMarkdown includes version header", () => {
     const ctx = makeBaseContext();
     const output = formatContextMarkdown(ctx, 42, "manual");
@@ -437,13 +419,11 @@ describe("Suite 5: Injection Formatting", () => {
   it("formatContextMarkdown includes workspace info", () => {
     const ctx = makeBaseContext({
       workspacePaths: ["/extra/path"],
-      filesTouched: ["src/index.ts", "package.json"],
     });
     const output = formatContextMarkdown(ctx, 1, "manual");
     expect(output).toContain("## Workspace");
     expect(output).toContain("Dir: /home/user/project");
     expect(output).toContain("+ /extra/path");
-    expect(output).toContain("Files touched: src/index.ts, package.json");
   });
 });
 

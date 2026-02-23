@@ -60,9 +60,6 @@ function makeBaseContext(overrides?: Partial<ContextState>): ContextState {
     workingDirectory: "/home/user/project",
     agent: "anthropic",
     model: "claude-sonnet",
-    errorResolutions: [],
-    filesTouched: [],
-    recentErrors: [],
     ...overrides,
   };
 }
@@ -484,12 +481,6 @@ describe("Suite 8: Full Scoped Context Lifecycle", () => {
         conventions: ["Use strict TypeScript", "Prefer functional components"],
         scan_status: "deep",
       }],
-      errorResolutions: [{
-        fingerprint: "TypeError: undefined is not a function",
-        resolution: "npm install",
-        occurrence_count: 3,
-      }],
-      filesTouched: ["src/App.tsx", "src/lib/utils.ts"],
       workspacePaths: ["/extra"],
     });
 
@@ -518,13 +509,8 @@ describe("Suite 8: Full Scoped Context Lifecycle", () => {
     expect(output).toContain("deploy_env = staging");
     expect(output).toContain("current_branch = feature/scoping");
 
-    // Error resolutions
-    expect(output).toContain("TypeError: undefined is not a function");
-    expect(output).toContain("npm install");
-
     // Workspace
     expect(output).toContain("Dir: /home/user/project");
-    expect(output).toContain("Files touched: src/App.tsx, src/lib/utils.ts");
   });
 
   it("empty context produces minimal output", () => {
@@ -538,6 +524,5 @@ describe("Suite 8: Full Scoped Context Lifecycle", () => {
     expect(output).not.toContain("## Projects");
     expect(output).not.toContain("## Pinned Context");
     expect(output).not.toContain("## Memory");
-    expect(output).not.toContain("## Known Error Resolutions");
   });
 });

@@ -84,9 +84,6 @@ function makeContext(overrides?: Partial<ContextState>): ContextState {
     workingDirectory: "/home/user/project",
     agent: "anthropic",
     model: "claude-sonnet",
-    errorResolutions: [],
-    filesTouched: [],
-    recentErrors: [],
     ...overrides,
   };
 }
@@ -162,9 +159,6 @@ describe("structuralEqual", () => {
       realms: [],
       workspacePaths: [],
       workingDirectory: "/home/user/project",
-      errorResolutions: [],
-      filesTouched: [],
-      recentErrors: [],
     };
     expect(structuralEqual(ctx1, ctx2)).toBe(true);
   });
