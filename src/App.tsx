@@ -4,6 +4,7 @@ import "./styles/themes.css";
 import "./styles/topbar.css";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { writeToSession } from "./api/sessions";
+import { sendShortcutCommand } from "./terminal/TerminalPool";
 import { createRealm } from "./api/realms";
 import { SessionProvider, useSession, useActiveSession, useSessionList, useAutonomousSettings } from "./state/SessionContext";
 import { SessionList } from "./components/SessionList";
@@ -137,8 +138,7 @@ function AppContent() {
   const handleAutoExecute = useCallback(() => {
     if (!ui.autoToast) return;
     const { command, sessionId } = ui.autoToast;
-    const data = btoa(command + "\r");
-    writeToSession(sessionId, data).catch(console.error);
+    sendShortcutCommand(sessionId, command);
     dispatch({ type: "DISMISS_AUTO_TOAST" });
   }, [ui.autoToast, dispatch]);
 

@@ -107,6 +107,19 @@
 .status-mode-assisted .status-mode-dot { background: var(--green); }
 .status-mode-autonomous .status-mode-dot { background: var(--accent); }
 
+/* ─── Version Badge ──────────────────────────── */
+
+.status-bar-version {
+  background: var(--yellow);
+  color: #000;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
 /* ─── Shortcuts Button ───────────────────────── */
 
 .status-shortcuts-btn {

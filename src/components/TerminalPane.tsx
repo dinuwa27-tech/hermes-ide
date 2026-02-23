@@ -2,11 +2,10 @@ import "../styles/components/TerminalPane.css";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { detectProject } from "../api/realms";
-import { writeToSession } from "../api/sessions";
 import {
   attach, detach, has, showGhostText, clearGhostText,
   subscribeSuggestions, setSessionPhase, setSessionCwd,
-  getHistoryProvider,
+  getHistoryProvider, sendShortcutCommand,
 } from "../terminal/TerminalPool";
 import { useExecutionMode, useAutonomousSettings, useSession } from "../state/SessionContext";
 import { SuggestionOverlay, type SuggestionState } from "../terminal/intelligence/SuggestionOverlay";
@@ -197,8 +196,7 @@ export function TerminalPane({ sessionId, phase, color }: TerminalPaneProps) {
 
   const applyAnnotation = useCallback(() => {
     if (!annotation?.command) return;
-    const data = btoa(annotation.command + "\r");
-    writeToSession(sessionId, data).catch(console.error);
+    sendShortcutCommand(sessionId, annotation.command);
     setAnnotation(null);
   }, [annotation, sessionId]);
 

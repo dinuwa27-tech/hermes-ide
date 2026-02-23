@@ -3,6 +3,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { writeToSession, resizeSession } from "../api/sessions";
 import { suggest } from "./intelligence/suggestionEngine";
 import { resolveIntent, getIntentSuggestions } from "./intentCommands";
@@ -16,6 +17,15 @@ import {
   shouldConsumeTab,
   clearShellEnvironment,
 } from "./intelligence/shellEnvironment";
+
+// ─── Debug ──────────────────────────────────────────────────────────
+
+/** Set to true to enable forensic input pipeline logging in the console. */
+const DEBUG_INPUT = false;
+
+function debugLog(tag: string, ...args: unknown[]): void {
+  if (DEBUG_INPUT) console.log(`[INPUT:${tag}]`, ...args);
+}
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -39,6 +49,7 @@ interface PoolEntry {
   viewport: HTMLDivElement | null;
   ghostText: string | null;
   ghostOverlay: HTMLDivElement | null;
+  userScrolledUp: boolean;
   // Intelligence state
   inputBuffer: string;
   suggestionState: SuggestionState | null;
@@ -222,26 +233,75 @@ export async function createTerminal(sessionId: string, color: string): Promise<
 
   const fitAddon = new FitAddon();
   terminal.loadAddon(fitAddon);
-  terminal.loadAddon(new WebLinksAddon());
+  terminal.loadAddon(new WebLinksAddon((_event, uri) => {
+    shellOpen(uri).catch(console.warn);
+  }));
 
   // Wire input → PTY (with intelligence interception)
   // NOTE: onBinary was intentionally removed — it caused duplicate keystrokes
   // for printable characters (e.g. apostrophes) when xterm fired both onData
   // and onBinary for the same keystroke on macOS with smart quotes / dead keys.
   // All input (including binary escape sequences) flows through onData.
+  //
+  // ARCHITECTURE: WKWebView (Tauri macOS) fires onData TWICE for single
+  // printable keystrokes — once from xterm's keydown handler and once from the
+  // hidden textarea's input event.  Instead of a timing-based dedup hack, we
+  // suppress the keydown path for printable characters using
+  // attachCustomKeyEventHandler.  The textarea input event is the single
+  // authoritative source for printable characters.  Control keys, modifiers,
+  // and special keys (arrows, etc.) still go through the keydown path.
+  terminal.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+    // Only intercept keydown — keyup is harmless
+    if (event.type !== "keydown") return true;
+    // Allow composing (IME) — textarea handles the final composed char
+    if (event.isComposing) return true;
+    // Allow modifier combos (Ctrl-C, Cmd-V, Alt-anything)
+    if (event.ctrlKey || event.metaKey || event.altKey) return true;
+    // Allow non-printable keys: arrows, Enter, Tab, Escape, Backspace, etc.
+    // event.key is a single char for printable keys; multi-char for specials
+    if (event.key.length !== 1) return true;
+    // Single printable character from keydown: SUPPRESS.
+    // The textarea input event will fire onData with the correct character.
+    debugLog("customKeyHandler:SUPPRESS", { key: event.key, code: event.code });
+    return false;
+  });
+
   terminal.onData((data) => {
+    debugLog("onData", {
+      data,
+      hex: [...data].map(c => c.charCodeAt(0).toString(16)).join(" "),
+      len: data.length,
+    });
+
     handleTerminalInput(sessionId, data);
+  });
+
+  // Track user scroll position to avoid jumping during streaming
+  terminal.onScroll(() => {
+    const entry = pool.get(sessionId);
+    if (!entry) return;
+    const buf = terminal.buffer.active;
+    const atBottom = buf.baseY + terminal.rows >= buf.length;
+    entry.userScrolledUp = !atBottom;
   });
 
   // Wire PTY output → terminal
   const unlistenOutput = await listen<string>(`pty-output-${sessionId}`, (event) => {
+    const entry = pool.get(sessionId);
+    const scrolledUp = entry?.userScrolledUp ?? false;
+    const viewportY = scrolledUp ? terminal.buffer.active.viewportY : -1;
     try {
       const binary = atob(event.payload);
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      debugLog("pty-output", { len: bytes.length, first20hex: [...bytes.slice(0, 20)].map(b => b.toString(16).padStart(2, "0")).join(" ") });
       terminal.write(bytes);
     } catch {
+      debugLog("pty-output:fallback", { len: event.payload.length });
       terminal.write(event.payload);
+    }
+    if (scrolledUp && viewportY >= 0) {
+      terminal.scrollToLine(viewportY);
     }
   });
 
@@ -260,6 +320,7 @@ export async function createTerminal(sessionId: string, color: string): Promise<
     viewport: null,
     ghostText: null,
     ghostOverlay: null,
+    userScrolledUp: false,
     // Intelligence
     inputBuffer: "",
     suggestionState: null,
@@ -359,6 +420,11 @@ function handleTerminalInput(sessionId: string, data: string): void {
   }
 
   // ── Always pass data to PTY ──
+  debugLog("writeToSession", {
+    data,
+    hex: [...data].map(c => c.charCodeAt(0).toString(16)).join(" "),
+    inputBuffer: entry.inputBuffer,
+  });
   writeToSession(sessionId, utf8ToBase64(data)).catch((err) => {
     console.warn(`[TerminalPool] write_to_session failed for ${sessionId}:`, err);
   });
@@ -394,17 +460,20 @@ function updateInputBuffer(entry: PoolEntry, data: string): void {
     // Ctrl-U — clear line
     entry.inputBuffer = "";
     dismissSuggestionsForEntry(entry);
-  } else if (data.length === 1 && data.charCodeAt(0) >= 32) {
-    // Printable character — append
-    entry.inputBuffer += data;
   } else if (data.startsWith("\x1b")) {
     // Escape sequences (arrows, etc.) — don't modify buffer
     // But dismiss suggestions on Escape alone
     if (data === "\x1b") {
       dismissSuggestionsForEntry(entry);
     }
+  } else {
+    // Printable characters — iterate to handle multi-char data (paste, IME)
+    for (let i = 0; i < data.length; i++) {
+      if (data.charCodeAt(i) >= 32) {
+        entry.inputBuffer += data[i];
+      }
+    }
   }
-  // Everything else (control chars) — ignore for buffer
 }
 
 function computeSuggestions(sessionId: string): void {
@@ -706,8 +775,10 @@ export function attach(sessionId: string, viewport: HTMLDivElement, autoFocus = 
   requestAnimationFrame(() => {
     try {
       entry.fitAddon.fit();
-      // Preserve scroll position at bottom after fit
-      entry.terminal.scrollToBottom();
+      // Only scroll to bottom if user hasn't scrolled up
+      if (!entry.userScrolledUp) {
+        entry.terminal.scrollToBottom();
+      }
     } catch { /* terminal may not be ready */ }
     if (autoFocus) entry.terminal.focus();
     resizeSession(sessionId, entry.terminal.rows, entry.terminal.cols).catch((err) => console.warn("[TerminalPool] Failed to resize session:", err));
@@ -753,7 +824,9 @@ export function refitActive(): void {
     if (entry.attached && entry.opened) {
       try {
         entry.fitAddon.fit();
-        entry.terminal.scrollToBottom();
+        if (!entry.userScrolledUp) {
+          entry.terminal.scrollToBottom();
+        }
       } catch { /* ignore fit errors */ }
     }
   }
@@ -836,6 +909,42 @@ export function clearGhostText(sessionId: string): void {
     entry.ghostOverlay.remove();
     entry.ghostOverlay = null;
   }
+}
+
+/** Send a shortcut command, clearing the current display line first.
+ *
+ *  Strategy:
+ *  1. Clear the display line with \r\x1b[K (carriage return + erase-to-EOL)
+ *     written directly to the terminal display — this is a visual operation,
+ *     NOT sent to PTY.
+ *  2. Send Ctrl-U (\x15) to PTY to clear readline's internal buffer so the
+ *     shell doesn't execute stale partial input.
+ *  3. Use terminal.paste(command + "\r") to inject the command text through
+ *     xterm's standard input path (fires onData → handleTerminalInput →
+ *     writeToSession).
+ *
+ *  IMPORTANT: Do NOT use \x0b (Vertical Tab) — it moves the cursor down in
+ *  the display layer, producing a visible newline artifact. */
+export function sendShortcutCommand(sessionId: string, command: string): void {
+  const entry = pool.get(sessionId);
+  if (!entry) return;
+
+  entry.inputBuffer = "";
+  dismissSuggestions(sessionId);
+  clearGhostText(sessionId);
+
+  debugLog("sendShortcutCommand", { command });
+
+  // Step 1: Clear readline's internal buffer via PTY
+  writeToSession(sessionId, utf8ToBase64("\x15")).catch((err) => {
+    console.warn(`[TerminalPool] sendShortcutCommand Ctrl-U failed for ${sessionId}:`, err);
+  });
+
+  // Step 2: Clear the display line (visual only, not sent to PTY)
+  entry.terminal.write("\r\x1b[K");
+
+  // Step 3: Inject command + Enter through xterm's paste path → onData → PTY
+  entry.terminal.paste(command + "\r");
 }
 
 export function getTerminal(sessionId: string): Terminal | null {

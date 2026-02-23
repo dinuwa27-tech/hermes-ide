@@ -5,10 +5,15 @@
  * keystrokes for printable characters (especially apostrophes on macOS with
  * smart quotes / dead-key composition). The fix removes the onBinary handler
  * entirely; all input flows through onData → handleTerminalInput → writeToSession.
+ *
+ * ARCHITECTURE: WKWebView fires onData twice per printable keystroke (keydown +
+ * textarea input). Instead of timing-based dedup, attachCustomKeyEventHandler
+ * suppresses the keydown path for single printable characters, leaving only the
+ * textarea input event as the authoritative source.
  */
 import { describe, it, expect } from "vitest";
 
-// Read source file to verify onBinary was removed
+// Read source file to verify architecture
 // @ts-expect-error — fs is a Node built-in, not in browser tsconfig
 import { readFileSync } from "fs";
 
@@ -42,15 +47,23 @@ describe("Terminal input: onBinary handler removed (double apostrophe fix)", () 
     expect(activeOnDataLines.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("onData routes through handleTerminalInput (not directly to writeToSession)", () => {
-    const onDataMatch = source.match(/terminal\.onData\(\(data\)\s*=>\s*\{[^}]*\}/);
-    expect(onDataMatch).not.toBeNull();
-    expect(onDataMatch![0]).toContain("handleTerminalInput");
-    expect(onDataMatch![0]).not.toContain("writeToSession");
+  it("onData handler calls handleTerminalInput", () => {
+    const match = source.match(/terminal\.onData\(\(data\)\s*=>\s*\{[\s\S]*?handleTerminalInput/);
+    expect(match).not.toBeNull();
   });
 
   it("comment explains why onBinary was removed", () => {
     expect(source).toContain("onBinary was intentionally removed");
+  });
+
+  it("attachCustomKeyEventHandler suppresses printable keydown", () => {
+    expect(source).toContain("attachCustomKeyEventHandler");
+    expect(source).toContain("event.key.length !== 1");
+  });
+
+  it("no timing-based dedup hack remains", () => {
+    expect(source).not.toContain("_lastOnDataValue");
+    expect(source).not.toContain("_lastOnDataTime");
   });
 });
 

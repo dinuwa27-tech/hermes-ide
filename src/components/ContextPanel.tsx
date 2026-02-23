@@ -3,7 +3,8 @@ import { useState, useCallback, useMemo, useEffect, useRef, memo } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { SessionData, useExecutionMode, useSession } from "../state/SessionContext";
-import { writeToSession, addWorkspacePath as apiAddWorkspacePath } from "../api/sessions";
+import { addWorkspacePath as apiAddWorkspacePath } from "../api/sessions";
+import { sendShortcutCommand } from "../terminal/TerminalPool";
 import { getSessionRealms } from "../api/realms";
 import { addContextPin, removeContextPin, findErrorCorrelations } from "../api/context";
 import { getAllMemory, saveMemory, deleteMemory } from "../api/memory";
@@ -11,7 +12,6 @@ import { useFileTree, FileTreeNode } from "../hooks/useFileTree";
 import { useContextState } from "../hooks/useContextState";
 import { ContextStatusBar } from "./ContextStatusBar";
 import { ContextPreview } from "./ContextPreview";
-import { utf8ToBase64 } from "../utils/encoding";
 import type { PersistedMemory, ErrorMatchEvent, ErrorCorrelation } from "../types";
 
 interface ContextPanelProps {
@@ -70,10 +70,7 @@ function ToolBar({ tool, count, maxCount }: { tool: string; count: number; maxCo
 }
 
 function sendCommand(sessionId: string, command: string) {
-  const data = utf8ToBase64(command + "\r");
-  writeToSession(sessionId, data).catch((err) => {
-    console.warn(`[ContextPanel] Failed to send command "${command}":`, err);
-  });
+  sendShortcutCommand(sessionId, command);
 }
 
 // File Tree component (F5)

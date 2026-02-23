@@ -1,8 +1,7 @@
 import "../styles/components/ProviderActionsBar.css";
 import { useMemo } from "react";
 import { ActionTemplate, ActionEvent } from "../state/SessionContext";
-import { utf8ToBase64 } from "../utils/encoding";
-import { writeToSession } from "../api/sessions";
+import { sendShortcutCommand } from "../terminal/TerminalPool";
 
 // Default actions per AI provider — shown immediately before agent detection
 const DEFAULT_ACTIONS: Record<string, ActionTemplate[]> = {
@@ -49,8 +48,7 @@ interface ProviderActionsBarProps {
 }
 
 function sendCommand(sessionId: string, command: string) {
-  const data = utf8ToBase64(command + "\r");
-  writeToSession(sessionId, data).catch(console.error);
+  sendShortcutCommand(sessionId, command);
 }
 
 export function ProviderActionsBar({ sessionId, actions, recentActions, aiProvider }: ProviderActionsBarProps) {
