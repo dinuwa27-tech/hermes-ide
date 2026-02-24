@@ -35,6 +35,13 @@ HERMES-IDE is a desktop terminal emulator that deeply integrates AI assistance i
 - **WebGL-accelerated rendering** — powered by xterm.js with web links and auto-fit
 - **Execution timeline** — visual history of every command with exit codes and durations
 
+### Git Integration
+- **Built-in git panel** — view staged, unstaged, and untracked files per project
+- **Stage / unstage / commit / push / pull** — all from the sidebar without leaving the terminal
+- **Inline diff viewer** — click any changed file to see a syntax-highlighted diff
+- **Robust authentication** — SSH agent, SSH key files, Git Credential Manager, and token-based auth
+- **Configurable polling** — auto-refresh interval, author overrides, and auto-stage from Settings > Git
+
 ### AI Intelligence
 - **Ghost-text suggestions** — real-time command completions from history and context
 - **Prompt Composer** — write natural-language instructions for autonomous task execution
