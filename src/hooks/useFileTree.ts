@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useMemo } from "react";
+import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import type { FileEntry } from "../types/git";
 import { listDirectory } from "../api/git";
 
@@ -102,6 +102,11 @@ export function useFileExplorer(projectPath: string | null) {
   const [loadingDirs, setLoadingDirs] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   const loadDirectory = useCallback(async (relativePath: string) => {
     if (!projectPath) return;

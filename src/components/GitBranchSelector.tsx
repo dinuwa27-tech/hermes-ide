@@ -43,9 +43,15 @@ export function validateBranchName(name: string): string | null {
   if (!name.trim()) return "Branch name cannot be empty";
   if (/\s/.test(name)) return "Branch name cannot contain spaces";
   if (name.startsWith("-")) return "Branch name cannot start with '-'";
+  if (name.startsWith(".")) return "Branch name cannot start with '.'";
   if (name.includes("..")) return "Branch name cannot contain '..'";
   if (name.endsWith(".lock")) return "Branch name cannot end with '.lock'";
-  if (/[~^:?*\[\\]/.test(name)) return "Branch name contains invalid characters";
+  if (name.endsWith(".")) return "Branch name cannot end with '.'";
+  if (name.endsWith("/")) return "Branch name cannot end with '/'";
+  if (name.includes("@{")) return "Branch name cannot contain '@{'";
+  if (/[~^:?*\[\]\\]/.test(name)) return "Branch name contains invalid characters";
+  // eslint-disable-next-line no-control-regex
+  if (/[\x00-\x1f\x7f]/.test(name)) return "Branch name cannot contain control characters";
   return null;
 }
 
@@ -117,11 +123,10 @@ export function GitBranchSelector({ projectPath, onRefresh, onToast, onClose }: 
     return () => clearTimeout(timer);
   }, [error]);
 
-  const handleCheckout = useCallback(async (name: string, isRemote: boolean) => {
+  const handleCheckout = useCallback(async (name: string) => {
     try {
       setError(null);
-      const branchName = isRemote ? name : name;
-      const result = await gitCheckoutBranch(projectPath, branchName);
+      const result = await gitCheckoutBranch(projectPath, name);
       onToast(result.message);
       onRefresh();
       onClose();
@@ -186,7 +191,7 @@ export function GitBranchSelector({ projectPath, onRefresh, onToast, onClose }: 
                 <div
                   key={b.name}
                   className={`git-branch-item ${b.is_current ? "git-branch-item-current" : ""}`}
-                  onClick={() => !b.is_current && handleCheckout(b.name, false)}
+                  onClick={() => !b.is_current && handleCheckout(b.name)}
                 >
                   <span className="git-branch-item-name">
                     {b.is_current && <span className="git-branch-current-marker">*</span>}
@@ -220,7 +225,7 @@ export function GitBranchSelector({ projectPath, onRefresh, onToast, onClose }: 
                 <div
                   key={b.name}
                   className="git-branch-item git-branch-item-remote"
-                  onClick={() => handleCheckout(b.name, true)}
+                  onClick={() => handleCheckout(b.name)}
                 >
                   <span className="git-branch-item-name">{b.name}</span>
                 </div>

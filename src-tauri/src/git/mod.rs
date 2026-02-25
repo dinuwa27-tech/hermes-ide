@@ -628,6 +628,16 @@ pub fn git_pull(
     remote: Option<String>,
 ) -> Result<GitOperationResult, String> {
     let repo = Repository::open(&project_path).map_err(|e| e.to_string())?;
+
+    // Reject pull if repo is already in a merge/rebase state
+    let state = repo.state();
+    if state != git2::RepositoryState::Clean {
+        return Err(format!(
+            "Cannot pull: repository is in {:?} state. Complete or abort the current operation first.",
+            state
+        ));
+    }
+
     let remote_name = remote.as_deref().unwrap_or("origin");
 
     let mut remote_obj = repo
@@ -708,9 +718,9 @@ pub fn git_pull(
         let index = repo.index().map_err(|e| e.to_string())?;
         if index.has_conflicts() {
             return Ok(GitOperationResult {
-                success: true,
+                success: false,
                 message: "Pull complete but merge has conflicts. Resolve them to finish the merge.".to_string(),
-                error: None,
+                error: Some("Merge conflicts detected".to_string()),
             });
         }
 
@@ -1259,7 +1269,7 @@ pub fn git_stash_list(project_path: String) -> Result<Vec<GitStashEntry>, String
         .map(|(index, msg, oid)| {
             let timestamp = repo
                 .find_commit(oid)
-                .map(|c| c.time().seconds() as u64)
+                .map(|c| c.time().seconds().max(0) as u64)
                 .unwrap_or(0);
             let branch_name = parse_stash_branch(&msg);
             GitStashEntry {
@@ -1358,7 +1368,8 @@ pub fn git_stash_clear(project_path: String) -> Result<GitOperationResult, Strin
 
     // Count stashes first
     let mut count = 0usize;
-    let _ = repo.stash_foreach(|_, _, _| { count += 1; true });
+    repo.stash_foreach(|_, _, _| { count += 1; true })
+        .map_err(|e| format!("Failed to enumerate stashes: {}", e))?;
 
     // Drop from index 0 repeatedly
     for _ in 0..count {
@@ -1462,7 +1473,7 @@ pub fn git_log(
             short_hash,
             author_name: commit.author().name().unwrap_or("").to_string(),
             author_email: commit.author().email().unwrap_or("").to_string(),
-            timestamp: commit.time().seconds() as u64,
+            timestamp: commit.time().seconds().max(0) as u64,
             message: commit
                 .message()
                 .unwrap_or("")
@@ -1567,7 +1578,7 @@ pub fn git_commit_detail(
     let short_hash = hash[..8.min(hash.len())].to_string();
     let author_name = commit.author().name().unwrap_or("").to_string();
     let author_email = commit.author().email().unwrap_or("").to_string();
-    let timestamp = commit.time().seconds() as u64;
+    let timestamp = commit.time().seconds().max(0) as u64;
     let message = commit.message().unwrap_or("").to_string();
     let parent_count = commit.parent_count();
 
@@ -1794,43 +1805,27 @@ pub fn git_resolve_conflict(
     let full_path = safe_join(&project_path, &file_path)?;
 
     match strategy.as_str() {
-        "ours" => {
+        "ours" | "theirs" => {
             let index = repo.index().map_err(|e| e.to_string())?;
-            let mut ours_content = None;
+            let is_ours = strategy == "ours";
+
+            // Single conflict lookup for both strategies
+            let mut target_content = None;
             for conflict in index.conflicts().map_err(|e| e.to_string())? {
                 let conflict = conflict.map_err(|e| e.to_string())?;
-                if let Some(ref our) = conflict.our {
-                    let path = std::str::from_utf8(&our.path)
-                        .map_err(|e| e.to_string())?;
+                let entry = if is_ours { &conflict.our } else { &conflict.their };
+                if let Some(ref e) = entry {
+                    let path = std::str::from_utf8(&e.path)
+                        .map_err(|err| err.to_string())?;
                     if path == file_path {
-                        let blob = repo.find_blob(our.id).map_err(|e| e.to_string())?;
-                        ours_content = Some(blob.content().to_vec());
+                        let blob = repo.find_blob(e.id).map_err(|err| err.to_string())?;
+                        target_content = Some(blob.content().to_vec());
                         break;
                     }
                 }
             }
-            let content = ours_content
-                .ok_or_else(|| format!("Could not find 'ours' version for '{}'", file_path))?;
-            std::fs::write(&full_path, &content)
-                .map_err(|e| format!("Failed to write file: {}", e))?;
-        }
-        "theirs" => {
-            let index = repo.index().map_err(|e| e.to_string())?;
-            let mut theirs_content = None;
-            for conflict in index.conflicts().map_err(|e| e.to_string())? {
-                let conflict = conflict.map_err(|e| e.to_string())?;
-                if let Some(ref their) = conflict.their {
-                    let path = std::str::from_utf8(&their.path)
-                        .map_err(|e| e.to_string())?;
-                    if path == file_path {
-                        let blob = repo.find_blob(their.id).map_err(|e| e.to_string())?;
-                        theirs_content = Some(blob.content().to_vec());
-                        break;
-                    }
-                }
-            }
-            let content = theirs_content
-                .ok_or_else(|| format!("Could not find 'theirs' version for '{}'", file_path))?;
+            let content = target_content
+                .ok_or_else(|| format!("Could not find '{}' version for '{}'", strategy, file_path))?;
             std::fs::write(&full_path, &content)
                 .map_err(|e| format!("Failed to write file: {}", e))?;
         }
@@ -1844,7 +1839,7 @@ pub fn git_resolve_conflict(
         _ => return Err(format!("Unknown strategy: {}", strategy)),
     }
 
-    // Mark as resolved by adding to index
+    // Mark as resolved by adding to index (single index read for resolve step)
     let mut index = repo.index().map_err(|e| e.to_string())?;
     index
         .add_path(Path::new(&file_path))
@@ -1901,7 +1896,7 @@ pub fn git_continue_merge(
         return Err("No merge in progress".to_string());
     }
 
-    let index = repo.index().map_err(|e| e.to_string())?;
+    let mut index = repo.index().map_err(|e| e.to_string())?;
     if index.has_conflicts() {
         return Err("Cannot complete merge: unresolved conflicts remain".to_string());
     }
@@ -1917,7 +1912,6 @@ pub fn git_continue_merge(
         .or_else(|| repo.message().ok())
         .unwrap_or_else(|| "Merge commit".to_string());
 
-    let mut index = repo.index().map_err(|e| e.to_string())?;
     let tree_oid = index.write_tree().map_err(|e| e.to_string())?;
     let tree = repo.find_tree(tree_oid).map_err(|e| e.to_string())?;
 

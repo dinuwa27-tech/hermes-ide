@@ -25,6 +25,14 @@ export function GitDiffView({ projectPath, file, onClose }: GitDiffViewProps) {
       .catch((e) => { setError(String(e)); setLoading(false); });
   }, [projectPath, file.path, file.area]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
   return (
     <div className="git-diff-overlay" onClick={onClose}>
       <div className="git-diff-modal" onClick={(e) => e.stopPropagation()}>

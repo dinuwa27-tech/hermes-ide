@@ -134,13 +134,7 @@ function FileTreeNode({ entry, depth, expandedDirs, loadingDirs, getEntries, sho
               showHidden={showHidden}
               searchQuery={searchQuery}
               onToggleDir={onToggleDir}
-              onFileClick={(e) => {
-                if (e.is_dir) {
-                  onToggleDir(e.path);
-                } else {
-                  onFileClick(e);
-                }
-              }}
+              onFileClick={onFileClick}
             />
           ))}
         </>

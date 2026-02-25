@@ -164,6 +164,31 @@ describe("validateBranchName", () => {
   it("rejects names ending with '.lock'", () => {
     expect(validateBranchName("my-branch.lock")).toBe("Branch name cannot end with '.lock'");
   });
+
+  it("rejects names starting with '.'", () => {
+    expect(validateBranchName(".hidden")).toBe("Branch name cannot start with '.'");
+  });
+
+  it("rejects names ending with '.'", () => {
+    expect(validateBranchName("branch.")).toBe("Branch name cannot end with '.'");
+  });
+
+  it("rejects names ending with '/'", () => {
+    expect(validateBranchName("feature/")).toBe("Branch name cannot end with '/'");
+  });
+
+  it("rejects '@{' sequence", () => {
+    expect(validateBranchName("branch@{0}")).toBe("Branch name cannot contain '@{'");
+  });
+
+  it("rejects closing bracket ']'", () => {
+    expect(validateBranchName("branch]name")).toBe("Branch name contains invalid characters");
+  });
+
+  it("rejects control characters", () => {
+    expect(validateBranchName("branch\x00name")).toBe("Branch name cannot contain control characters");
+    expect(validateBranchName("branch\x7fname")).toBe("Branch name cannot contain control characters");
+  });
 });
 
 // ─── Reducer: SET_LEFT_TAB with git ─────────────────────────────────
