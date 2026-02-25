@@ -10,11 +10,6 @@
   animation: slideInRight 0.15s ease-out;
 }
 
-@keyframes slideInRight {
-  from { opacity: 0; transform: translateX(20px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-
 .context-panel-body {
   flex: 1;
   overflow-y: auto;
@@ -80,8 +75,6 @@
 .ctx-phase-idle { background: var(--text-3); }
 .ctx-phase-busy { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 2s ease-in-out infinite; }
 .ctx-phase-error { background: var(--red); }
-
-@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
 /* Sparkline */
 .ctx-sparkline-wrap {

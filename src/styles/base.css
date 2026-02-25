@@ -39,7 +39,7 @@ html, body, #root {
   border: none;
   color: var(--text-3);
   cursor: pointer;
-  font-size: 18px;
+  font-size: var(--text-2xl);
   padding: 0 4px;
   border-radius: var(--radius-sm);
   transition: color 0.1s, background 0.1s;
@@ -86,7 +86,7 @@ kbd {
   justify-content: center;
   gap: var(--space-4);
 }
-.error-boundary-title { font-size: 18px; color: var(--red); }
+.error-boundary-title { font-size: var(--text-2xl); color: var(--red); }
 .error-boundary-stack {
   font-size: var(--text-md);
   color: var(--text-2);
@@ -146,3 +146,17 @@ kbd {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ─── Shared Keyframes ──────────────────────────────────── */
+
+@keyframes paletteIn {
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }

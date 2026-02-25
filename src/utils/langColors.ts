@@ -1,0 +1,18 @@
+export const LANG_COLORS: Record<string, string> = {
+  "JavaScript": "#f1e05a",
+  "TypeScript": "#3178c6",
+  "JavaScript/TypeScript": "#3178c6",
+  "Python": "#3572a5",
+  "Rust": "#dea584",
+  "Go": "#00add8",
+  "Ruby": "#701516",
+  "Java": "#b07219",
+  "Java/Kotlin": "#b07219",
+  "Kotlin": "#a97bff",
+  "Swift": "#f05138",
+  "C#": "#178600",
+  "C++": "#f34b7d",
+  "C": "#555555",
+  "PHP": "#4f5d95",
+  "Dart": "#00b4ab",
+};

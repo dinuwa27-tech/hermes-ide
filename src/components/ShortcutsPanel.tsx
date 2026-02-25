@@ -68,7 +68,7 @@ export function ShortcutsPanel({ onClose }: ShortcutsPanelProps) {
       <div className="shortcuts-panel" onClick={(e) => e.stopPropagation()}>
         <div className="shortcuts-header">
           <span className="shortcuts-title">Keyboard Shortcuts</span>
-          <button className="close-btn shortcuts-close" onClick={onClose}>&times;</button>
+          <button className="close-btn shortcuts-close" onClick={onClose} aria-label="Close">&times;</button>
         </div>
         <div className="shortcuts-body">
           {SHORTCUT_GROUPS.map((group) => (

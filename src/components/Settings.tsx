@@ -31,6 +31,14 @@ export function Settings({ onClose, initialTab }: SettingsProps) {
   const applyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  useEffect(() => {
     getSettings()
       .then((s) => setSettings(s))
       .catch(console.error);
@@ -146,7 +154,7 @@ export function Settings({ onClose, initialTab }: SettingsProps) {
       <div className="settings-panel" onClick={(e) => e.stopPropagation()}>
         <div className="settings-header">
           <span className="settings-title">Settings</span>
-          <button className="close-btn settings-close" onClick={onClose}>&times;</button>
+          <button className="close-btn settings-close" onClick={onClose} aria-label="Close">&times;</button>
         </div>
 
         <div className="settings-body">

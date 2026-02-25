@@ -14,11 +14,6 @@
   animation: slideInRight 0.2s ease-out;
 }
 
-@keyframes slideInRight {
-  from { opacity: 0; transform: translateX(20px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-
 .auto-toast-header {
   display: flex;
   align-items: center;

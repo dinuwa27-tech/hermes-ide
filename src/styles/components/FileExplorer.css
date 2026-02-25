@@ -37,22 +37,28 @@
 }
 
 .file-explorer-toggle {
-  background: none;
-  border: 1px solid var(--border-light);
-  color: var(--text-3);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text-2);
   cursor: pointer;
   font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  padding: 1px 6px;
-  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  padding: 2px 6px;
+  border-radius: var(--radius);
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
 }
 .file-explorer-toggle:hover {
-  color: var(--text-0);
   background: var(--bg-hover);
+  color: var(--text-1);
 }
 .file-explorer-toggle-active {
-  color: var(--accent);
+  background: var(--accent-dim);
   border-color: var(--accent);
+  color: var(--accent);
+}
+.file-explorer-toggle-active:hover {
+  background: var(--accent-dim);
+  color: var(--accent);
 }
 
 .file-explorer-search {
@@ -120,7 +126,7 @@
 
 .file-tree-chevron {
   color: var(--text-3);
-  font-size: 10px;
+  font-size: var(--text-sm);
   transition: transform 0.15s;
   flex-shrink: 0;
   width: 12px;
@@ -135,7 +141,7 @@
 }
 
 .file-tree-icon {
-  font-size: 12px;
+  font-size: var(--text-md);
   flex-shrink: 0;
   width: 16px;
   text-align: center;

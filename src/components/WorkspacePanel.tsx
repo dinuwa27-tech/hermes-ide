@@ -2,29 +2,11 @@ import "../styles/components/WorkspacePanel.css";
 import { useState, useEffect, useCallback } from "react";
 import { Project } from "../hooks/useSessionProjects";
 import { getProjects, createProject, deleteProject as apiDeleteProject, scanProject, scanDirectory as apiScanDirectory } from "../api/projects";
+import { LANG_COLORS } from "../utils/langColors";
 
 interface WorkspacePanelProps {
   onClose: () => void;
 }
-
-const LANG_COLORS: Record<string, string> = {
-  "JavaScript": "#f7df1e",
-  "TypeScript": "#3178c6",
-  "Python": "#3776ab",
-  "Rust": "#dea584",
-  "Go": "#00add8",
-  "Ruby": "#cc342d",
-  "Java": "#b07219",
-  "Kotlin": "#a97bff",
-  "Swift": "#f05138",
-  "C#": "#178600",
-  "C++": "#f34b7d",
-  "C": "#555555",
-  "PHP": "#4f5d95",
-  "Dart": "#00b4ab",
-  "JavaScript/TypeScript": "#3178c6",
-  "Java/Kotlin": "#b07219",
-};
 
 function projectShortPath(path: string): string {
   return path.replace(/^\/Users\/[^/]+/, "~");

@@ -20,6 +20,14 @@ export function CostDashboard({ onClose }: CostDashboardProps) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  useEffect(() => {
     setLoading(true);
     Promise.all([
       getCostHistory(days).then((entries) => setDailyCosts(entries)).catch((err) => console.warn("[CostDashboard] Failed to load cost history:", err)),
@@ -76,7 +84,7 @@ export function CostDashboard({ onClose }: CostDashboardProps) {
               </button>
             ))}
           </div>
-          <button className="close-btn cost-dashboard-close" onClick={onClose}>&times;</button>
+          <button className="close-btn cost-dashboard-close" onClick={onClose} aria-label="Close">&times;</button>
         </div>
 
         {loading ? (

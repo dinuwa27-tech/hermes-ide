@@ -3,21 +3,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Project, useSessionProjects } from "../hooks/useSessionProjects";
 import { getProjects, createProject, deleteProject } from "../api/projects";
-
-const LANGUAGE_COLORS: Record<string, string> = {
-  "JavaScript/TypeScript": "#f1e05a",
-  TypeScript: "#3178c6",
-  JavaScript: "#f1e05a",
-  Rust: "#dea584",
-  Python: "#3572a5",
-  Go: "#00ADD8",
-  Ruby: "#701516",
-  Java: "#b07219",
-  PHP: "#4F5D95",
-  Dart: "#00B4AB",
-  Swift: "#F05138",
-  "C#": "#178600",
-};
+import { LANG_COLORS } from "../utils/langColors";
 
 interface ProjectPickerProps {
   sessionId: string;
@@ -134,8 +120,8 @@ export function ProjectPicker({ sessionId, onClose }: ProjectPickerProps) {
           <span className="project-picker-count">
             {attachedProjects.length} attached
           </span>
-          <button className="close-btn settings-close" onClick={onClose}>
-            x
+          <button className="close-btn settings-close" onClick={onClose} aria-label="Close">
+            &times;
           </button>
         </div>
 
@@ -182,8 +168,8 @@ export function ProjectPicker({ sessionId, onClose }: ProjectPickerProps) {
                       key={lang}
                       className="workspace-lang-tag"
                       style={{
-                        color: LANGUAGE_COLORS[lang] || "#7b93db",
-                        borderColor: (LANGUAGE_COLORS[lang] || "#7b93db") + "66",
+                        color: LANG_COLORS[lang] || "#7b93db",
+                        borderColor: (LANG_COLORS[lang] || "#7b93db") + "66",
                       }}
                     >
                       {lang}

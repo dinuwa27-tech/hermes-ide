@@ -76,7 +76,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-2);
-  font-size: 10px;
+  font-size: var(--text-sm);
   font-family: var(--font-mono);
   cursor: pointer;
   transition: background 0.1s, border-color 0.1s, color 0.1s;
