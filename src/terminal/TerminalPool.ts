@@ -182,7 +182,9 @@ export function updateSettings(settings: Record<string, string>): void {
   const fontFamily = FONT_FAMILIES[settings.font_family || "default"] || FONT_FAMILIES.default;
   const scrollback = parseInt(settings.scrollback || "10000", 10);
 
-  for (const entry of pool.values()) {
+  for (const [sessionId, entry] of pool) {
+    // Clear ghost overlays before font/size changes (they'd be misaligned)
+    clearGhostText(sessionId);
     entry.terminal.options.fontSize = fontSize;
     entry.terminal.options.fontFamily = fontFamily;
     entry.terminal.options.scrollback = scrollback;
@@ -404,7 +406,8 @@ export async function createTerminal(sessionId: string, color: string): Promise<
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
       terminal.write(bytes);
     } catch {
-      terminal.write(event.payload);
+      // Corrupted base64 — silently drop to avoid garbled output
+      console.warn(`[TerminalPool] Failed to decode base64 PTY output for ${sessionId}, dropping chunk`);
     }
     if (scrolledUp && viewportY >= 0) {
       terminal.scrollToLine(viewportY);
@@ -594,9 +597,20 @@ function updateInputBuffer(entry: PoolEntry, data: string): void {
       entry.inputBuffer = "";
       dismissSuggestionsForEntry(entry);
     } else if (code === 0x1b) {
-      // Start of escape sequence embedded in paste — skip remaining chars
-      // (escape sequences are variable-length, safest to stop processing)
-      break;
+      // Escape sequence embedded in paste — skip the sequence, keep processing
+      // Escape sequences: \x1b[ followed by params and a letter terminator
+      if (i + 1 < data.length && data[i + 1] === "[") {
+        // CSI sequence: skip until letter terminator (@ through ~)
+        i += 2; // skip \x1b[
+        while (i < data.length && !(data.charCodeAt(i) >= 0x40 && data.charCodeAt(i) <= 0x7e)) {
+          i++;
+        }
+        // i now points at the terminator — loop increment will advance past it
+      } else if (i + 1 < data.length) {
+        // Two-char sequence (e.g., \x1bO) — skip one char
+        i++;
+      }
+      // Single bare escape — just skip it
     } else if (code >= 32) {
       // Printable character
       entry.inputBuffer += data[i];
@@ -704,11 +718,15 @@ function acceptSuggestion(sessionId: string): void {
 
   // Erase current input and write the selected command
   const currentInput = entry.inputBuffer;
-  entry.inputBuffer = "";
 
   // Send backspaces to erase current input, then write the suggestion
   const eraseSequence = "\x7f".repeat(currentInput.length);
   const fullData = eraseSequence + selected.text;
+
+  // Update inputBuffer to the accepted text (writeToSession bypasses onData,
+  // so the buffer must be set explicitly to stay in sync)
+  entry.inputBuffer = selected.text;
+
   writeToSession(sessionId, utf8ToBase64(fullData)).catch((err) => {
     console.warn(`[TerminalPool] write_to_session (accept) failed for ${sessionId}:`, err);
   });
@@ -929,6 +947,8 @@ export function focusTerminal(sessionId: string): void {
 export function detach(sessionId: string): void {
   const entry = pool.get(sessionId);
   if (!entry || !entry.attached) return;
+  // Clear ghost text to prevent stale overlay reappearing on re-attach
+  clearGhostText(sessionId);
   entry.container.style.display = "none";
   entry.attached = false;
 }

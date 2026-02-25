@@ -250,7 +250,16 @@ describe("Invariant 5: updateInputBuffer handles paste/IME (multi-char data)", (
       } else if (code === 0x03 || code === 0x15 || code === 0x0d) {
         inputBuffer = "";
       } else if (code === 0x1b) {
-        break; // escape sequence — stop processing
+        // Escape sequence — skip it, keep processing remaining chars
+        if (i + 1 < data.length && data[i + 1] === "[") {
+          // CSI sequence: skip until letter terminator (@ through ~)
+          i += 2;
+          while (i < data.length && !(data.charCodeAt(i) >= 0x40 && data.charCodeAt(i) <= 0x7e)) {
+            i++;
+          }
+        } else if (i + 1 < data.length) {
+          i++; // Two-char sequence
+        }
       } else if (code >= 32) {
         inputBuffer += data[i];
       }
@@ -308,6 +317,25 @@ describe("Invariant 5: updateInputBuffer handles paste/IME (multi-char data)", (
     // Legacy payload pattern — tests that control chars reset the buffer
     const payload = "\x15/compact\r";
     expect(updateInputBuffer("whatever", payload)).toBe("");
+  });
+
+  it("embedded CSI escape sequence in paste — chars after sequence preserved", () => {
+    // Paste with ANSI color: "hello\x1b[31mworld" → buffer gets "helloworld"
+    expect(updateInputBuffer("", "hello\x1b[31mworld")).toBe("helloworld");
+  });
+
+  it("multiple embedded escape sequences in paste", () => {
+    // "a\x1b[0mb\x1b[1mc" → "abc"
+    expect(updateInputBuffer("", "a\x1b[0mb\x1b[1mc")).toBe("abc");
+  });
+
+  it("bare escape in paste doesn't drop remaining chars", () => {
+    // "hello\x1bworld" — bare escape (non-CSI) skips one char then continues
+    expect(updateInputBuffer("", "hello\x1bworld")).toBe("helloorld");
+  });
+
+  it("escape at end of paste data doesn't crash", () => {
+    expect(updateInputBuffer("", "hello\x1b")).toBe("hello");
   });
 
   it("source does NOT use single-char guard (old bug pattern)", () => {
@@ -443,5 +471,68 @@ describe("Invariant 10: sendShortcutCommand refuses linebreak commands", () => {
     // The return must be before the triggerDataEvent call
     const triggerIdx = afterCheck.indexOf("triggerDataEvent");
     expect(returnIdx).toBeLessThan(triggerIdx);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// INVARIANT 11: Base64 decode failure does NOT write garbled data
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("Invariant 11: Base64 decode failure drops data (no garbled terminal output)", () => {
+  it("catch block does NOT write raw payload to terminal", () => {
+    // The catch block in pty-output handler must not call terminal.write(event.payload)
+    const outputHandler = SRC.match(/listen<string>\(`pty-output-\$\{sessionId\}`[\s\S]*?\}\);/);
+    expect(outputHandler).not.toBeNull();
+    const catchBlock = outputHandler![0].match(/catch\s*\{[\s\S]*?\}/);
+    expect(catchBlock).not.toBeNull();
+    expect(catchBlock![0]).not.toContain("terminal.write(event.payload)");
+    // Should log a warning instead
+    expect(catchBlock![0]).toContain("console.warn");
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// INVARIANT 12: acceptSuggestion keeps inputBuffer in sync
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("Invariant 12: acceptSuggestion sets inputBuffer to selected text", () => {
+  it("acceptSuggestion updates inputBuffer to selected.text (not empty)", () => {
+    const fn = SRC.match(/function acceptSuggestion[\s\S]*?\n\}/);
+    expect(fn).not.toBeNull();
+    const body = fn![0];
+    // Must set inputBuffer to selected.text, not just ""
+    expect(body).toContain("entry.inputBuffer = selected.text");
+    // Must NOT have only the clearing pattern without the assignment
+    expect(body).not.toMatch(/entry\.inputBuffer = ""\s*;\s*\n\s*\/\/ Send/);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// INVARIANT 13: detach clears ghost text to prevent stale overlays
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("Invariant 13: detach clears ghost text", () => {
+  it("detach calls clearGhostText before hiding container", () => {
+    const fn = SRC.match(/export function detach[\s\S]*?\n\}/);
+    expect(fn).not.toBeNull();
+    const body = fn![0];
+    expect(body).toContain("clearGhostText(sessionId)");
+    // clearGhostText must appear before container.style.display = "none"
+    const clearIdx = body.indexOf("clearGhostText");
+    const hideIdx = body.indexOf('display = "none"');
+    expect(clearIdx).toBeLessThan(hideIdx);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// INVARIANT 14: updateSettings clears stale ghost overlays
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("Invariant 14: updateSettings clears ghost overlays on font/theme change", () => {
+  it("updateSettings calls clearGhostText for each session", () => {
+    const fn = SRC.match(/export function updateSettings[\s\S]*?\n\}/);
+    expect(fn).not.toBeNull();
+    const body = fn![0];
+    expect(body).toContain("clearGhostText(sessionId)");
   });
 });
