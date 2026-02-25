@@ -1,6 +1,6 @@
 [package]
 name = "hermes-ide"
-version = "0.3.6"
+version = "0.3.7"
 description = "AI-native terminal for macOS"
 authors = ["Gabriel Anhaia"]
 edition = "2021"
@@ -36,3 +36,4 @@ regex = "1"
 lazy_static = "1"
 sysinfo = { version = "0.33", features = ["system", "user"] }
 git2 = "0.19"
+ignore = "0.4"

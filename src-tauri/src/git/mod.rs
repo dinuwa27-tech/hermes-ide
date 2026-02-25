@@ -1950,3 +1950,149 @@ pub fn git_continue_merge(
         error: None,
     })
 }
+
+// ─── Project Search Data Models ─────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchMatch {
+    pub line_number: u32,
+    pub line_content: String,
+    pub match_start: u32,
+    pub match_end: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchFileResult {
+    pub path: String,
+    pub matches: Vec<SearchMatch>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchResponse {
+    pub results: Vec<SearchFileResult>,
+    pub total_matches: u32,
+    pub truncated: bool,
+}
+
+// ─── Project Search Command ─────────────────────────────────────────
+
+#[tauri::command]
+pub fn search_project(
+    project_path: String,
+    query: String,
+    is_regex: bool,
+    case_sensitive: bool,
+    max_results: Option<u32>,
+) -> Result<SearchResponse, String> {
+    let cap = max_results.unwrap_or(500) as usize;
+
+    if query.is_empty() {
+        return Ok(SearchResponse {
+            results: Vec::new(),
+            total_matches: 0,
+            truncated: false,
+        });
+    }
+
+    // Build regex from query
+    let pattern = if is_regex {
+        if case_sensitive {
+            query.clone()
+        } else {
+            format!("(?i){}", query)
+        }
+    } else {
+        let escaped = regex::escape(&query);
+        if case_sensitive {
+            escaped
+        } else {
+            format!("(?i){}", escaped)
+        }
+    };
+    let re = regex::Regex::new(&pattern).map_err(|e| format!("Invalid regex: {}", e))?;
+
+    let mut results: Vec<SearchFileResult> = Vec::new();
+    let mut total_matches: usize = 0;
+    let mut truncated = false;
+
+    let walker = ignore::WalkBuilder::new(&project_path)
+        .hidden(true)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .build();
+
+    const MAX_FILE_SIZE: u64 = 1_048_576; // 1MB
+
+    for entry in walker {
+        if truncated {
+            break;
+        }
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let path = entry.path();
+
+        // Skip directories
+        if path.is_dir() {
+            continue;
+        }
+
+        // Skip files > 1MB
+        if let Ok(meta) = path.metadata() {
+            if meta.len() > MAX_FILE_SIZE {
+                continue;
+            }
+        }
+
+        // Read file, skip binary/non-UTF-8
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        let mut file_matches: Vec<SearchMatch> = Vec::new();
+        for (line_idx, line) in content.lines().enumerate() {
+            for mat in re.find_iter(line) {
+                // Convert byte offsets to char offsets so JS String.slice() works correctly
+                // for non-ASCII content (UTF-8 byte positions ≠ UTF-16 code unit positions).
+                let char_start = line[..mat.start()].chars().count() as u32;
+                let char_end = line[..mat.end()].chars().count() as u32;
+                file_matches.push(SearchMatch {
+                    line_number: (line_idx + 1) as u32,
+                    line_content: line.to_string(),
+                    match_start: char_start,
+                    match_end: char_end,
+                });
+                total_matches += 1;
+                if total_matches >= cap {
+                    truncated = true;
+                    break;
+                }
+            }
+            if truncated {
+                break;
+            }
+        }
+
+        if !file_matches.is_empty() {
+            // Compute relative path
+            let rel = path
+                .strip_prefix(&project_path)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .to_string();
+            results.push(SearchFileResult {
+                path: rel,
+                matches: file_matches,
+            });
+        }
+    }
+
+    Ok(SearchResponse {
+        results,
+        total_matches: total_matches as u32,
+        truncated,
+    })
+}

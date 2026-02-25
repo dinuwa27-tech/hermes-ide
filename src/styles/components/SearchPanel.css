@@ -1,0 +1,225 @@
+/* ─── Search Panel ──────────────────────────────────────────── */
+
+.search-panel {
+  position: relative;
+  min-width: 240px;
+  max-width: 600px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-1);
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+/* ─── Resize Handle ───────────────────────────────────────────── */
+
+.search-panel-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 3px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 10;
+  transition: background 0.15s;
+}
+
+.search-panel-resize-handle:hover {
+  background: var(--accent);
+}
+
+/* ─── Toolbar ──────────────────────────────────────────────── */
+
+.search-toolbar {
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.search-panel-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-0);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.search-input {
+  width: 100%;
+  padding: 4px 8px;
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  outline: none;
+  box-sizing: border-box;
+}
+
+.search-input:focus {
+  border-color: var(--accent);
+}
+
+.search-toggles {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.search-toggle {
+  padding: 2px 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-2);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+
+.search-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.search-toggle-active {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.search-toggle-active:hover {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+/* ─── Summary Bar ──────────────────────────────────────────── */
+
+.search-summary {
+  padding: 4px var(--space-2);
+  border-bottom: 1px solid var(--border);
+  font-size: 10px;
+  color: var(--text-2);
+}
+
+/* ─── Results Area ─────────────────────────────────────────── */
+
+.search-results {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* ─── File Group ───────────────────────────────────────────── */
+
+.search-file-group {
+  border-bottom: 1px solid var(--border);
+}
+
+.search-file-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 4px var(--space-2);
+  cursor: pointer;
+  user-select: none;
+  background: var(--bg-2);
+}
+
+.search-file-header:hover {
+  background: var(--bg-hover);
+}
+
+.search-file-chevron {
+  font-size: 9px;
+  color: var(--text-3);
+  width: 12px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.search-file-path {
+  flex: 1;
+  color: var(--text-1);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  unicode-bidi: plaintext;
+  text-align: left;
+}
+
+.search-match-count {
+  color: var(--text-3);
+  font-size: 9px;
+  flex-shrink: 0;
+}
+
+/* ─── Match Row ────────────────────────────────────────────── */
+
+.search-match-row {
+  display: flex;
+  align-items: baseline;
+  padding: 2px var(--space-2) 2px calc(var(--space-2) + 12px);
+  cursor: pointer;
+  gap: var(--space-1);
+}
+
+.search-match-row:hover {
+  background: var(--bg-hover);
+}
+
+.search-match-line-num {
+  color: var(--text-3);
+  font-size: 10px;
+  min-width: 28px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.search-match-content {
+  color: var(--text-1);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+.search-match-highlight {
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-weight: 600;
+  border-radius: 2px;
+}
+
+/* ─── State Indicators ─────────────────────────────────────── */
+
+.search-loading,
+.search-empty,
+.search-error,
+.search-no-session {
+  padding: var(--space-2);
+  font-size: 11px;
+  color: var(--text-2);
+  text-align: center;
+}
+
+.search-error {
+  color: var(--red);
+  background: var(--red-dim);
+}
+
+.search-truncated {
+  padding: 4px var(--space-2);
+  background: var(--yellow-dim);
+  color: var(--yellow);
+  font-size: 10px;
+  text-align: center;
+}

@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   GitSessionStatus, GitDiff, GitOperationResult, GitBranch, FileEntry,
   GitStashEntry, GitLogResult, GitCommitDetail, MergeStatus, ConflictContent, ConflictStrategy,
+  SearchResponse,
 } from "../types/git";
 
 export function gitStatus(sessionId: string): Promise<GitSessionStatus> {
@@ -153,5 +154,23 @@ export function gitContinueMerge(
     message: message || null,
     authorName: authorName || null,
     authorEmail: authorEmail || null,
+  });
+}
+
+// ─── Project Search API ─────────────────────────────────────────────
+
+export function searchProject(
+  projectPath: string,
+  query: string,
+  isRegex: boolean,
+  caseSensitive: boolean,
+  maxResults?: number,
+): Promise<SearchResponse> {
+  return invoke<SearchResponse>("search_project", {
+    projectPath,
+    query,
+    isRegex,
+    caseSensitive,
+    maxResults: maxResults ?? null,
   });
 }

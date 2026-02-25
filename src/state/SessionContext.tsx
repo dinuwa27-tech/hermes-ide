@@ -61,7 +61,8 @@ interface SessionState {
     processPanelOpen: boolean;
     gitPanelOpen: boolean;
     fileExplorerOpen: boolean;
-    activeLeftTab: "sessions" | "processes" | "git" | "files";
+    searchPanelOpen: boolean;
+    activeLeftTab: "sessions" | "processes" | "git" | "files" | "search";
   };
 }
 
@@ -169,6 +170,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
           processPanelOpen: !state.ui.sessionListCollapsed ? state.ui.processPanelOpen : false,
           gitPanelOpen: !state.ui.sessionListCollapsed ? state.ui.gitPanelOpen : false,
           fileExplorerOpen: !state.ui.sessionListCollapsed ? state.ui.fileExplorerOpen : false,
+          searchPanelOpen: !state.ui.sessionListCollapsed ? state.ui.searchPanelOpen : false,
         },
       };
     case "TOGGLE_PALETTE":
@@ -323,6 +325,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
           processPanelOpen: opening,
           gitPanelOpen: opening ? false : state.ui.gitPanelOpen,
           fileExplorerOpen: opening ? false : state.ui.fileExplorerOpen,
+          searchPanelOpen: opening ? false : state.ui.searchPanelOpen,
           activeLeftTab: opening ? "processes" : "sessions",
           sessionListCollapsed: opening ? true : state.ui.sessionListCollapsed,
         },
@@ -334,7 +337,8 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
         (tab === "processes" && state.ui.processPanelOpen) ||
         (tab === "git" && state.ui.gitPanelOpen) ||
         (tab === "files" && state.ui.fileExplorerOpen) ||
-        (tab === "sessions" && !state.ui.sessionListCollapsed && !state.ui.processPanelOpen && !state.ui.gitPanelOpen && !state.ui.fileExplorerOpen);
+        (tab === "search" && state.ui.searchPanelOpen) ||
+        (tab === "sessions" && !state.ui.sessionListCollapsed && !state.ui.processPanelOpen && !state.ui.gitPanelOpen && !state.ui.fileExplorerOpen && !state.ui.searchPanelOpen);
       if (alreadyActive) {
         // Clicking the active tab collapses it
         return {
@@ -344,6 +348,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
             processPanelOpen: false,
             gitPanelOpen: false,
             fileExplorerOpen: false,
+            searchPanelOpen: false,
             sessionListCollapsed: true,
             activeLeftTab: tab,
           },
@@ -357,6 +362,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
           processPanelOpen: tab === "processes",
           gitPanelOpen: tab === "git",
           fileExplorerOpen: tab === "files",
+          searchPanelOpen: tab === "search",
           sessionListCollapsed: tab !== "sessions",
         },
       };
@@ -372,6 +378,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
           gitPanelOpen: opening,
           processPanelOpen: opening ? false : state.ui.processPanelOpen,
           fileExplorerOpen: opening ? false : state.ui.fileExplorerOpen,
+          searchPanelOpen: opening ? false : state.ui.searchPanelOpen,
           activeLeftTab: opening ? "git" : "sessions",
           sessionListCollapsed: opening ? true : state.ui.sessionListCollapsed,
         },
@@ -388,8 +395,26 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
           fileExplorerOpen: opening,
           processPanelOpen: opening ? false : state.ui.processPanelOpen,
           gitPanelOpen: opening ? false : state.ui.gitPanelOpen,
+          searchPanelOpen: opening ? false : state.ui.searchPanelOpen,
           sessionListCollapsed: opening ? true : state.ui.sessionListCollapsed,
           activeLeftTab: opening ? "files" : "sessions",
+        },
+      };
+    }
+
+    // ─── Search panel actions ──────────────────────────────────────────
+    case "TOGGLE_SEARCH_PANEL": {
+      const opening = !state.ui.searchPanelOpen;
+      return {
+        ...state,
+        ui: {
+          ...state.ui,
+          searchPanelOpen: opening,
+          processPanelOpen: opening ? false : state.ui.processPanelOpen,
+          gitPanelOpen: opening ? false : state.ui.gitPanelOpen,
+          fileExplorerOpen: opening ? false : state.ui.fileExplorerOpen,
+          sessionListCollapsed: opening ? true : state.ui.sessionListCollapsed,
+          activeLeftTab: opening ? "search" : "sessions",
         },
       };
     }
@@ -439,6 +464,7 @@ export const initialState: SessionState = {
     processPanelOpen: false,
     gitPanelOpen: false,
     fileExplorerOpen: false,
+    searchPanelOpen: false,
     activeLeftTab: "sessions" as const,
   },
 };

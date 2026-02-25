@@ -18,6 +18,7 @@ interface CommandPaletteProps {
   onOpenComposer?: () => void;
   onOpenShortcuts?: () => void;
   onToggleGit?: () => void;
+  onToggleSearch?: () => void;
 }
 
 interface Command {
@@ -30,7 +31,7 @@ interface Command {
 }
 
 export function CommandPalette({
-  onClose, sessions, onSelectSession, onNewSession, onToggleContext, onToggleSessions, onOpenSettings, onOpenWorkspace, onOpenCostDashboard, onToggleFlowMode, onAttachProject, onScanCwd, onOpenComposer, onOpenShortcuts, onToggleGit,
+  onClose, sessions, onSelectSession, onNewSession, onToggleContext, onToggleSessions, onOpenSettings, onOpenWorkspace, onOpenCostDashboard, onToggleFlowMode, onAttachProject, onScanCwd, onOpenComposer, onOpenShortcuts, onToggleGit, onToggleSearch,
 }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -47,13 +48,14 @@ export function CommandPalette({
     { id: "settings-autonomous", label: "Settings / Autonomous", category: "Settings", hidden: true, action: () => { onOpenSettings("autonomous"); onClose(); } },
     { id: "settings-shortcuts", label: "Settings / Shortcuts", category: "Settings", hidden: true, action: () => { onOpenSettings("shortcuts"); onClose(); } },
     { id: "workspace", label: "Projects", category: "App", action: () => { onOpenWorkspace(); onClose(); } },
-    ...(onOpenCostDashboard ? [{ id: "cost-dashboard", label: "Cost Dashboard", category: "App", shortcut: "⌘⇧D", action: () => { onOpenCostDashboard(); onClose(); } }] : []),
-    ...(onToggleFlowMode ? [{ id: "flow-mode", label: "Toggle Flow Mode", category: "View", shortcut: "⌘⇧F", action: () => { onToggleFlowMode(); onClose(); } }] : []),
+    ...(onOpenCostDashboard ? [{ id: "cost-dashboard", label: "Cost Dashboard", category: "App", shortcut: "⌘$", action: () => { onOpenCostDashboard(); onClose(); } }] : []),
+    ...(onToggleFlowMode ? [{ id: "flow-mode", label: "Toggle Flow Mode", category: "View", shortcut: "⌘⇧Z", action: () => { onToggleFlowMode(); onClose(); } }] : []),
     ...(onAttachProject ? [{ id: "attach-project", label: "Add Project...", category: "Projects", action: () => { onAttachProject(); onClose(); } }] : []),
     ...(onScanCwd ? [{ id: "scan-cwd", label: "Scan Current Directory", category: "Projects", action: () => { onScanCwd(); onClose(); } }] : []),
     ...(onOpenComposer ? [{ id: "composer", label: "Prompt Composer", category: "Tools", shortcut: "⌘J", action: () => { onOpenComposer(); onClose(); } }] : []),
     ...(onOpenShortcuts ? [{ id: "shortcuts", label: "Keyboard Shortcuts", category: "Help", shortcut: "⌘/", action: () => { onOpenShortcuts(); onClose(); } }] : []),
     ...(onToggleGit ? [{ id: "git", label: "Toggle Git Panel", category: "View", shortcut: "⌘G", action: () => { onToggleGit(); onClose(); } }] : []),
+    ...(onToggleSearch ? [{ id: "search", label: "Search Project", category: "View", shortcut: "⌘⇧F", action: () => { onToggleSearch(); onClose(); } }] : []),
     ...sessions.map((s, i) => ({
       id: `session-${s.id}`,
       label: s.label,
@@ -61,7 +63,7 @@ export function CommandPalette({
       shortcut: i < 9 ? `⌘${i + 1}` : undefined,
       action: () => { onSelectSession(s.id); onClose(); },
     })),
-  ], [sessions, onNewSession, onClose, onToggleContext, onToggleSessions, onSelectSession, onOpenSettings, onOpenWorkspace, onOpenCostDashboard, onToggleFlowMode, onAttachProject, onScanCwd, onOpenComposer, onOpenShortcuts, onToggleGit]);
+  ], [sessions, onNewSession, onClose, onToggleContext, onToggleSessions, onSelectSession, onOpenSettings, onOpenWorkspace, onOpenCostDashboard, onToggleFlowMode, onAttachProject, onScanCwd, onOpenComposer, onOpenShortcuts, onToggleGit, onToggleSearch]);
 
   const filtered = useMemo(() => {
     if (!query) return commands.filter((c) => !c.hidden);

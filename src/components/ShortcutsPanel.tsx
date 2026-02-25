@@ -22,7 +22,8 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: "⌘/", action: "Keyboard Shortcuts" },
       { keys: "⌘J", action: "Prompt Composer" },
       { keys: "⌘⇧C", action: "Copy Context" },
-      { keys: "⌘⇧F", action: "Toggle Flow Mode" },
+      { keys: "⌘⇧F", action: "Search Project" },
+      { keys: "⌘⇧Z", action: "Toggle Flow Mode" },
     ],
   },
   {
@@ -30,6 +31,9 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
     shortcuts: [
       { keys: "⌘B", action: "Toggle Sessions Sidebar" },
       { keys: "⌘E", action: "Toggle Context Panel" },
+      { keys: "⌘P", action: "Processes" },
+      { keys: "⌘G", action: "Git" },
+      { keys: "⌘F", action: "Files" },
       { keys: "⌘T", action: "Toggle Timeline" },
       { keys: "⌘$", action: "Cost Dashboard" },
     ],

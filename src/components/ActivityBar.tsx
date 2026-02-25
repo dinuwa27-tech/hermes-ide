@@ -91,6 +91,13 @@ export const FilesIcon = (
   </svg>
 );
 
+export const SearchIcon = (
+  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="7.5" cy="7.5" r="5" />
+    <line x1="11" y1="11" x2="15.5" y2="15.5" />
+  </svg>
+);
+
 export const PlusIcon = (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
     <line x1="8" y1="3" x2="8" y2="13" />

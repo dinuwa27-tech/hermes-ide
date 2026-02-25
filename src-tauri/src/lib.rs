@@ -156,6 +156,8 @@ pub fn run() {
             git::git_continue_merge,
             // File explorer
             git::list_directory,
+            // Project search
+            git::search_project,
         ])
         .run(tauri::generate_context!())
         .expect("error while running HERMES-IDE");

@@ -9,10 +9,11 @@ import { createProject } from "./api/projects";
 import { SessionProvider, useSession, useActiveSession, useSessionList, useAutonomousSettings } from "./state/SessionContext";
 import { SessionList } from "./components/SessionList";
 import { ContextPanel } from "./components/ContextPanel";
-import { ActivityBar, SessionsIcon, ContextIcon, PlusIcon, ProcessesIcon, GitIcon, FilesIcon } from "./components/ActivityBar";
+import { ActivityBar, SessionsIcon, ContextIcon, PlusIcon, ProcessesIcon, GitIcon, FilesIcon, SearchIcon } from "./components/ActivityBar";
 import { ProcessPanel } from "./components/ProcessPanel";
 import { GitPanel } from "./components/GitPanel";
 import { FileExplorerPanel } from "./components/FileExplorerPanel";
+import { SearchPanel } from "./components/SearchPanel";
 import { StatusBar } from "./components/StatusBar";
 import { CommandPalette } from "./components/CommandPalette";
 import { EmptyState } from "./components/EmptyState";
@@ -86,7 +87,8 @@ function AppContent() {
               setSessionCreatorOpen(true);
             }
             return;
-          case "F": case "f": e.preventDefault(); dispatch({ type: "TOGGLE_FLOW_MODE" }); return;
+          case "F": case "f": e.preventDefault(); dispatch({ type: "TOGGLE_SEARCH_PANEL" }); return;
+          case "Z": case "z": e.preventDefault(); dispatch({ type: "TOGGLE_FLOW_MODE" }); return;
           case "C": case "c": e.preventDefault(); copyContextToClipboard(activeSession); return;
         }
       }
@@ -221,18 +223,20 @@ function AppContent() {
               { id: "processes", label: "Processes (⌘P)", icon: ProcessesIcon },
               { id: "git", label: "Git (⌘G)", icon: GitIcon },
               { id: "files", label: "Files (⌘F)", icon: FilesIcon },
+              { id: "search", label: "Search (⌘⇧F)", icon: SearchIcon },
             ]}
             activeTabId={
+              ui.searchPanelOpen ? "search" :
               ui.fileExplorerOpen ? "files" :
               ui.gitPanelOpen ? "git" :
               ui.processPanelOpen ? "processes" :
               ui.sessionListCollapsed ? null : "sessions"
             }
-            onTabClick={(tabId) => dispatch({ type: "SET_LEFT_TAB", tab: tabId as "sessions" | "processes" | "git" | "files" })}
+            onTabClick={(tabId) => dispatch({ type: "SET_LEFT_TAB", tab: tabId as "sessions" | "processes" | "git" | "files" | "search" })}
             topAction={{ icon: PlusIcon, label: "New Session (⌘N)", onClick: () => setSessionCreatorOpen(true) }}
           />
         )}
-        {!ui.sessionListCollapsed && !ui.flowMode && !ui.processPanelOpen && !ui.gitPanelOpen && !ui.fileExplorerOpen && (
+        {!ui.sessionListCollapsed && !ui.flowMode && !ui.processPanelOpen && !ui.gitPanelOpen && !ui.fileExplorerOpen && !ui.searchPanelOpen && (
           <SessionList
             sessions={sessions}
             activeSessionId={state.activeSessionId}
@@ -248,6 +252,9 @@ function AppContent() {
         )}
         {ui.fileExplorerOpen && !ui.flowMode && (
           <FileExplorerPanel visible={ui.fileExplorerOpen} />
+        )}
+        {ui.searchPanelOpen && !ui.flowMode && (
+          <SearchPanel visible={ui.searchPanelOpen} />
         )}
         <div className="main-area">
           <div className="terminal-and-timeline">
@@ -322,6 +329,7 @@ function AppContent() {
           onOpenComposer={() => setComposerOpen(true)}
           onOpenShortcuts={() => { setShortcutsOpen(true); }}
           onToggleGit={() => dispatch({ type: "TOGGLE_GIT_PANEL" })}
+          onToggleSearch={() => dispatch({ type: "TOGGLE_SEARCH_PANEL" })}
           onScanCwd={() => {
             if (activeSession?.working_directory) {
               createProject(activeSession.working_directory, null).catch(console.error);

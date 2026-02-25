@@ -112,6 +112,26 @@ export interface GitCommitDetail {
   total_deletions: number;
 }
 
+// ─── Project Search Types ────────────────────────────────────────────
+
+export interface SearchMatch {
+  line_number: number;
+  line_content: string;
+  match_start: number;
+  match_end: number;
+}
+
+export interface SearchFileResult {
+  path: string;
+  matches: SearchMatch[];
+}
+
+export interface SearchResponse {
+  results: SearchFileResult[];
+  total_matches: number;
+  truncated: boolean;
+}
+
 // ─── Merge Conflict Types ────────────────────────────────────────────
 
 export type ConflictStrategy = "ours" | "theirs" | "manual";
