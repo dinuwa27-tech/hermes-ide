@@ -10,13 +10,18 @@ interface GitProjectSectionProps {
   onDiffFile: (projectPath: string, file: GitFile) => void;
 }
 
+interface Toast {
+  message: string;
+  type: "success" | "info";
+}
+
 export function GitProjectSection({ project, onRefresh, onDiffFile }: GitProjectSectionProps) {
   const [expanded, setExpanded] = useState(true);
   const [commitMsg, setCommitMsg] = useState("");
   const [pushing, setPushing] = useState(false);
   const [pulling, setPulling] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [commitSuccess, setCommitSuccess] = useState(false);
+  const [toast, setToast] = useState<Toast | null>(null);
   const [autoStage, setAutoStage] = useState(false);
 
   const staged = useMemo(() => project.files.filter((f) => f.area === "staged"), [project.files]);
@@ -32,19 +37,23 @@ export function GitProjectSection({ project, onRefresh, onDiffFile }: GitProject
     }).catch(() => {});
   }, []);
 
-  // 2D: Auto-dismiss errors after 8 seconds
+  // Auto-dismiss errors after 8 seconds
   useEffect(() => {
     if (!error) return;
     const timer = setTimeout(() => setError(null), 8000);
     return () => clearTimeout(timer);
   }, [error]);
 
-  // Clear commit success after 3 seconds
+  // Auto-dismiss toast after 4 seconds
   useEffect(() => {
-    if (!commitSuccess) return;
-    const timer = setTimeout(() => setCommitSuccess(false), 3000);
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 4000);
     return () => clearTimeout(timer);
-  }, [commitSuccess]);
+  }, [toast]);
+
+  const showToast = useCallback((message: string, type: "success" | "info" = "success") => {
+    setToast({ message, type });
+  }, []);
 
   const handleStage = useCallback(async (path: string) => {
     setError(null);
@@ -80,15 +89,12 @@ export function GitProjectSection({ project, onRefresh, onDiffFile }: GitProject
 
   const handleCommit = useCallback(async () => {
     if (!commitMsg.trim()) return;
-    // 3D: Auto-stage if enabled, otherwise require staged files
     if (!autoStage && staged.length === 0) return;
     try {
       setError(null);
-      // Auto-stage all if enabled
       if (autoStage) {
         await gitStage(project.project_path, ["."]);
       }
-      // Read author overrides from settings
       let authorName: string | undefined;
       let authorEmail: string | undefined;
       try {
@@ -98,32 +104,33 @@ export function GitProjectSection({ project, onRefresh, onDiffFile }: GitProject
       } catch { /* use defaults */ }
       await gitCommit(project.project_path, commitMsg.trim(), authorName, authorEmail);
       setCommitMsg("");
-      setCommitSuccess(true);
+      showToast("Committed successfully");
       onRefresh();
     } catch (e) { setError(String(e)); }
-  }, [project.project_path, commitMsg, staged.length, autoStage, onRefresh]);
+  }, [project.project_path, commitMsg, staged.length, autoStage, onRefresh, showToast]);
 
   const handlePush = useCallback(async () => {
     try {
       setPushing(true);
       setError(null);
-      await gitPush(project.project_path);
+      const result = await gitPush(project.project_path);
+      showToast(result.message || "Pushed successfully");
       onRefresh();
     } catch (e) { setError(String(e)); }
     finally { setPushing(false); }
-  }, [project.project_path, onRefresh]);
+  }, [project.project_path, onRefresh, showToast]);
 
   const handlePull = useCallback(async () => {
     try {
       setPulling(true);
       setError(null);
-      await gitPull(project.project_path);
+      const result = await gitPull(project.project_path);
+      showToast(result.message || "Pulled successfully", "info");
       onRefresh();
     } catch (e) { setError(String(e)); }
     finally { setPulling(false); }
-  }, [project.project_path, onRefresh]);
+  }, [project.project_path, onRefresh, showToast]);
 
-  // 2G: Open-file with error feedback
   const handleOpen = useCallback((path: string) => {
     setError(null);
     gitOpenFile(project.project_path, path).catch((e) => setError(String(e)));
@@ -239,7 +246,6 @@ export function GitProjectSection({ project, onRefresh, onDiffFile }: GitProject
               >
                 {autoStage ? "Stage & Commit" : "Commit"}
               </button>
-              {commitSuccess && <span className="git-success">Committed!</span>}
               <button
                 className="git-btn git-btn-pull"
                 disabled={pulling}
@@ -259,6 +265,13 @@ export function GitProjectSection({ project, onRefresh, onDiffFile }: GitProject
 
           {error && (
             <div className="git-error">{error}</div>
+          )}
+
+          {/* Toast notification */}
+          {toast && (
+            <div className={`git-toast git-toast-${toast.type}`}>
+              {toast.type === "success" ? "\u2713" : "\u2139"} {toast.message}
+            </div>
           )}
         </div>
       )}

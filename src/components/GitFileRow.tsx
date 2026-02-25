@@ -37,29 +37,29 @@ export const GitFileRow = memo(function GitFileRow({
       <div className="git-file-actions">
         {onOpen && (
           <button
-            className="git-file-btn"
-            title="Open file"
+            className="git-file-btn git-file-btn-open"
+            title="Open file in default editor"
             onClick={(e) => { e.stopPropagation(); onOpen(file.path); }}
           >
-            &#8599;
+            Open
           </button>
         )}
         {file.area === "staged" && onUnstage && (
           <button
             className="git-file-btn git-file-btn-unstage"
-            title="Unstage"
+            title="Unstage this file"
             onClick={(e) => { e.stopPropagation(); onUnstage(file.path); }}
           >
-            &minus;
+            Unstage
           </button>
         )}
         {(file.area === "unstaged" || file.area === "untracked") && onStage && (
           <button
             className="git-file-btn git-file-btn-stage"
-            title="Stage"
+            title="Stage this file"
             onClick={(e) => { e.stopPropagation(); onStage(file.path); }}
           >
-            +
+            Stage
           </button>
         )}
       </div>
