@@ -40,6 +40,14 @@
   gap: var(--space-1);
 }
 
+.process-panel-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-0);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 .process-search {
   width: 100%;
   padding: 4px 8px;

@@ -16,6 +16,19 @@
   to { opacity: 1; transform: translateX(0); }
 }
 
+.session-list-header {
+  padding: 8px 12px 4px;
+  flex-shrink: 0;
+}
+
+.session-list-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-0);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 .session-list-body {
   flex: 1;
   overflow-y: auto;

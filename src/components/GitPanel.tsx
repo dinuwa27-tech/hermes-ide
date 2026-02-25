@@ -55,7 +55,7 @@ export function GitPanel({ visible }: GitPanelProps) {
   return (
     <div className="git-panel">
       <div className="git-panel-toolbar">
-        <span className="git-panel-title">Git</span>
+        <span className="git-panel-title">GIT</span>
         <button className="git-panel-refresh" onClick={refresh} title="Refresh">
           &#8635;
         </button>

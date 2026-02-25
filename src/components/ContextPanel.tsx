@@ -611,7 +611,7 @@ export function ContextPanel({ session }: ContextPanelProps) {
   return (
     <div className={`context-panel ${contextManager.lifecycle === 'dirty' || contextManager.lifecycle === 'apply_failed' ? "context-panel-outofsync" : ""}`}>
       <div className="context-panel-header">
-        <span className="context-panel-title">Context</span>
+        <span className="context-panel-title">CONTEXT</span>
         <div className="ctx-header-actions">
           <button className="ctx-header-action-btn" onClick={() => setShowPinAdd(!showPinAdd)} title="Add pin">&#x1F4CC;</button>
           <button className="ctx-header-action-btn" onClick={() => setShowMemoryAdd(!showMemoryAdd)} title="Add memory fact">&#x1F4DD;</button>

@@ -510,6 +510,7 @@ export function ProcessPanel({ visible }: ProcessPanelProps) {
     <div className="process-panel" style={{ width: panelWidth }}>
       {/* Toolbar */}
       <div className="process-toolbar">
+        <span className="process-panel-title">PROCESSES</span>
         <input
           className="process-search"
           type="text"

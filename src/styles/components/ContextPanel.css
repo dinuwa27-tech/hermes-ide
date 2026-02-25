@@ -611,10 +611,10 @@
 
 .context-panel-title {
   font-size: var(--text-base);
-  font-weight: 700;
-  color: var(--text-2);
+  font-weight: 600;
+  color: var(--text-0);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.05em;
 }
 
 /* Header action buttons */

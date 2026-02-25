@@ -176,6 +176,9 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose }: Se
 
   return (
     <div className="session-list">
+      <div className="session-list-header">
+        <span className="session-list-title">SESSIONS</span>
+      </div>
       <div className="session-list-body">
         {sessions.length === 0 && (
           <div className="session-list-empty">No active sessions<br/><span className="text-muted">Press ⌘N to create one</span></div>
