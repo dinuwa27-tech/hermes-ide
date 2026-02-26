@@ -193,7 +193,7 @@ export function mergeRoles(roleIds: string[], allRoles: RoleDefinition[]): strin
     const stripped = role.systemInstruction
       .replace(/^You are an? .+? with /, "")
       .replace(/^You are an? .+? who /, "");
-    if (stripped !== role.systemInstruction) {
+    if (stripped !== role.systemInstruction && stripped.trim()) {
       const key = stripped.toLowerCase();
       if (!seen.has(key)) {
         seen.add(key);
@@ -222,7 +222,7 @@ export function validateCustomRole(
     return { valid: false, error: "System instruction is required" };
   }
   const duplicate = existingRoles.find(
-    (r) => r.label.toLowerCase() === role.label.trim().toLowerCase(),
+    (r) => r.label.trim().toLowerCase() === role.label.trim().toLowerCase(),
   );
   if (duplicate) {
     return { valid: false, error: `A role with label "${duplicate.label}" already exists` };

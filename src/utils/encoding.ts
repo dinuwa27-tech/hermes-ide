@@ -4,9 +4,6 @@
  */
 export function utf8ToBase64(str: string): string {
   const bytes = new TextEncoder().encode(str);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
+  const binary = Array.from(bytes, (b) => String.fromCharCode(b)).join("");
   return btoa(binary);
 }

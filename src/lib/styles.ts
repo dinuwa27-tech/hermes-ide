@@ -229,7 +229,7 @@ export function validateCustomStyle(
     return { valid: false, error: "All 5 level instructions are required" };
   }
   const duplicate = existingStyles.find(
-    (s) => s.label.toLowerCase() === style.label.trim().toLowerCase(),
+    (s) => s.label.trim().toLowerCase() === style.label.trim().toLowerCase(),
   );
   if (duplicate) {
     return { valid: false, error: `A style with label "${duplicate.label}" already exists` };

@@ -624,6 +624,44 @@ export const BUILT_IN_TEMPLATES: PromptTemplate[] = [
     },
   },
 
+  // ── Prompt Analysis (3) ──
+  {
+    id: "analysis-error-discovery",
+    name: "Error Discovery & Fix",
+    category: "debugging",
+    recommendedRoles: ["debugger", "test-engineer"],
+    recommendedStyles: [{ id: "step-by-step", level: 4 }, { id: "diff-format", level: 3 }, { id: "actionable", level: 3 }],
+    builtIn: true,
+    fields: {
+      constraints: "Investigate the codebase systematically. Look for logic errors, unhandled edge cases, type safety gaps, race conditions, resource leaks, and broken invariants. Do not report style or cosmetic issues — focus on functional errors. For each error found: explain the root cause, provide the fix, and add or update tests to cover it.",
+      style: "For each finding: describe the error, show the buggy code, explain the root cause, show the fix as a diff, and provide the test. Group findings by severity (critical, high, medium).",
+    },
+  },
+  {
+    id: "analysis-codebase-health",
+    name: "Codebase Health Check",
+    category: "debugging",
+    recommendedRoles: ["code-reviewer", "architect"],
+    recommendedStyles: [{ id: "visual", level: 3 }, { id: "actionable", level: 4 }, { id: "step-by-step", level: 3 }],
+    builtIn: true,
+    fields: {
+      constraints: "Audit the codebase for error-prone patterns, missing error handling, unsafe assumptions, and fragile code. Check for: null/undefined access without guards, async operations without proper error boundaries, stale closures, missing cleanup in effects or subscriptions, and silent failure paths. Prioritize findings that could cause runtime crashes or data corruption.",
+      style: "Present a summary table of findings ranked by risk. For each finding, show the problematic code, explain why it is error-prone, provide the fix as a diff, and list the test cases needed.",
+    },
+  },
+  {
+    id: "analysis-test-and-fix",
+    name: "Test-Driven Error Hunt",
+    category: "testing",
+    recommendedRoles: ["test-engineer", "debugger"],
+    recommendedStyles: [{ id: "code-heavy", level: 4 }, { id: "step-by-step", level: 3 }, { id: "diff-format", level: 3 }],
+    builtIn: true,
+    fields: {
+      constraints: "Write tests that probe for real bugs — not just coverage padding. Target edge cases, boundary conditions, error paths, and integration seams. When a test reveals an actual bug, fix the source code and keep the test. Use AAA (Arrange-Act-Assert) pattern. Tests must be deterministic and isolated.",
+      style: "For each area: write the failing test first, show the error it catches, then show the fix. Group by module or component. End with a summary of bugs found vs tests added.",
+    },
+  },
+
   // ── Migrated v1 templates ──
   {
     id: "bug-fix",

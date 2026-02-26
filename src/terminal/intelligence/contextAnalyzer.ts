@@ -19,14 +19,14 @@ export async function detectProjectContext(cwd: string): Promise<ProjectContext>
     contextCache.set(cwd, ctx);
     return ctx;
   } catch {
-    const fallback: ProjectContext = {
+    // Do NOT cache error fallbacks — a temporary failure (network, backend)
+    // should not permanently poison the cache for this CWD.
+    return {
       hasGit: false,
       packageManager: null,
       languages: [],
       frameworks: [],
     };
-    contextCache.set(cwd, fallback);
-    return fallback;
   }
 }
 
