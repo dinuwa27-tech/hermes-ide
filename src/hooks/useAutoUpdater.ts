@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { check, type Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 
 export interface UpdateState {
   /** An update is available */
@@ -12,8 +13,6 @@ export interface UpdateState {
   downloading: boolean;
   /** Download progress 0-100 */
   progress: number;
-  /** Download finished, ready to install */
-  readyToInstall: boolean;
   /** User dismissed the dialog — hide until next launch */
   dismissed: boolean;
 }
@@ -24,7 +23,6 @@ const INITIAL: UpdateState = {
   notes: "",
   downloading: false,
   progress: 0,
-  readyToInstall: false,
   dismissed: false,
 };
 
@@ -88,10 +86,12 @@ export function useAutoUpdater() {
             break;
           }
           case "Finished":
-            setState((s) => ({ ...s, downloading: false, readyToInstall: true, progress: 100 }));
+            setState((s) => ({ ...s, downloading: false, progress: 100 }));
             break;
         }
       });
+      // Update installed — relaunch the app
+      await relaunch();
     } catch {
       setState((s) => ({ ...s, downloading: false }));
     }

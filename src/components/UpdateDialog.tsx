@@ -1,6 +1,5 @@
 import "../styles/components/UpdateDialog.css";
 import { open } from "@tauri-apps/plugin-shell";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { UpdateState } from "../hooks/useAutoUpdater";
 
 interface UpdateDialogProps {
@@ -36,7 +35,7 @@ export function UpdateDialog({ state, onDismiss, onDownload }: UpdateDialogProps
               />
             </div>
             <div className="update-dialog-progress-label">
-              Downloading... {state.progress}%
+              Downloading &amp; installing... {state.progress}%
             </div>
           </div>
         )}
@@ -49,28 +48,19 @@ export function UpdateDialog({ state, onDismiss, onDownload }: UpdateDialogProps
             Changelog
           </button>
 
-          {!state.readyToInstall && (
+          {!state.downloading && (
             <button className="update-dialog-btn" onClick={onDismiss}>
               Later
             </button>
           )}
 
-          {state.readyToInstall ? (
-            <button
-              className="update-dialog-btn update-dialog-btn-primary"
-              onClick={() => getCurrentWindow().close()}
-            >
-              Quit &amp; Update
-            </button>
-          ) : (
-            <button
-              className="update-dialog-btn update-dialog-btn-primary"
-              onClick={onDownload}
-              disabled={state.downloading}
-            >
-              {state.downloading ? "Downloading..." : "Update"}
-            </button>
-          )}
+          <button
+            className="update-dialog-btn update-dialog-btn-primary"
+            onClick={onDownload}
+            disabled={state.downloading}
+          >
+            {state.downloading ? "Restarting..." : "Update Now"}
+          </button>
         </div>
       </div>
     </div>

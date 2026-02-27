@@ -24,6 +24,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let app_dir = app.path().app_data_dir()
                 .map_err(|e| format!("Failed to get app data dir: {}", e))?;
