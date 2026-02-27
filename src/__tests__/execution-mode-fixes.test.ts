@@ -23,7 +23,6 @@ vi.mock("../terminal/TerminalPool", () => ({
 }));
 vi.mock("../utils/notifications", () => ({
   initNotifications: vi.fn(),
-  notifyStuck: vi.fn(),
   notifyLongRunningDone: vi.fn(),
 }));
 
@@ -47,22 +46,9 @@ import {
 describe("FIX 1 — Autonomous settings wired into state", () => {
   it("initial state has correct defaults", () => {
     expect(initialState.autonomousSettings).toEqual({
-      errorMinOccurrences: 3,
       commandMinFrequency: 5,
       cancelDelayMs: 3000,
     });
-  });
-
-  it("SET_AUTONOMOUS_SETTINGS updates errorMinOccurrences", () => {
-    const action: SessionAction = {
-      type: "SET_AUTONOMOUS_SETTINGS",
-      settings: { errorMinOccurrences: 7 },
-    };
-    const next = sessionReducer(initialState, action);
-    expect(next.autonomousSettings.errorMinOccurrences).toBe(7);
-    // Others unchanged
-    expect(next.autonomousSettings.commandMinFrequency).toBe(5);
-    expect(next.autonomousSettings.cancelDelayMs).toBe(3000);
   });
 
   it("SET_AUTONOMOUS_SETTINGS updates commandMinFrequency", () => {
@@ -72,7 +58,6 @@ describe("FIX 1 — Autonomous settings wired into state", () => {
     };
     const next = sessionReducer(initialState, action);
     expect(next.autonomousSettings.commandMinFrequency).toBe(2);
-    expect(next.autonomousSettings.errorMinOccurrences).toBe(3);
   });
 
   it("SET_AUTONOMOUS_SETTINGS updates cancelDelayMs", () => {
@@ -88,7 +73,7 @@ describe("FIX 1 — Autonomous settings wired into state", () => {
     // First update
     let state = sessionReducer(initialState, {
       type: "SET_AUTONOMOUS_SETTINGS",
-      settings: { errorMinOccurrences: 1 },
+      settings: { commandMinFrequency: 10 },
     });
     // Second update — should not clobber the first
     state = sessionReducer(state, {
@@ -96,8 +81,7 @@ describe("FIX 1 — Autonomous settings wired into state", () => {
       settings: { cancelDelayMs: 5000 },
     });
     expect(state.autonomousSettings).toEqual({
-      errorMinOccurrences: 1,
-      commandMinFrequency: 5,
+      commandMinFrequency: 10,
       cancelDelayMs: 5000,
     });
   });

@@ -71,7 +71,6 @@ export function Settings({ onClose, initialTab }: SettingsProps) {
   }, []);
 
   const AUTONOMOUS_KEYS: Record<string, string> = {
-    auto_error_min_occurrences: "errorMinOccurrences",
     auto_command_min_frequency: "commandMinFrequency",
     auto_cancel_delay_ms: "cancelDelayMs",
   };
@@ -420,18 +419,6 @@ export function Settings({ onClose, initialTab }: SettingsProps) {
                   Autonomous mode auto-executes frequent commands and repeated error fixes
                   after a countdown. Adjust thresholds below.
                 </p>
-                <div className="settings-group">
-                  <label className="settings-label">
-                    Min error occurrences for auto-fix: {settings.auto_error_min_occurrences || "3"}
-                  </label>
-                  <input
-                    type="range"
-                    className="settings-range"
-                    min="1" max="10" step="1"
-                    value={settings.auto_error_min_occurrences || "3"}
-                    onChange={(e) => updateSetting("auto_error_min_occurrences", e.target.value)}
-                  />
-                </div>
                 <div className="settings-group">
                   <label className="settings-label">
                     Min command frequency for auto-predict: {settings.auto_command_min_frequency || "5"}

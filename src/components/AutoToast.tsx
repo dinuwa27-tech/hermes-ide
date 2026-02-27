@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from "react";
 
 interface AutoToastProps {
   command: string;
-  reason: "prediction" | "error_fix";
+  reason: "prediction";
   delayMs: number;
   onCancel: () => void;
   onExecute: () => void;
@@ -46,7 +46,7 @@ export function AutoToast({ command, reason, delayMs, onCancel, onExecute }: Aut
     return () => window.removeEventListener("keydown", handler);
   }, [onCancel]);
 
-  const label = reason === "prediction" ? "Auto-running" : "Auto-fix";
+  const label = "Auto-running";
 
   return (
     <div className="auto-toast">

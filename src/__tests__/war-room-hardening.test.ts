@@ -1,13 +1,12 @@
 /**
  * War-Room Hardening Test Suite
  *
- * Covers all 6 systemic fixes:
- * 1. Stuck detection: requires busy + silence (not just error count)
- * 2. Session-scoped stuck overlay dismissal
- * 3. structuralEqual utility
- * 4. Version lifecycle (no false increments)
- * 5. Injection lock (multi-pane prevention)
- * 6. Auto-apply debounce
+ * Covers systemic fixes:
+ * 1. structuralEqual utility
+ * 2. Injection lock (multi-pane prevention)
+ * 3. Version lifecycle (no false increments)
+ * 4. Session isolation (multi-session busy state)
+ * 5. SESSION_REMOVED cleanup
  */
 import { describe, it, expect, vi } from "vitest";
 
@@ -28,7 +27,6 @@ vi.mock("../terminal/TerminalPool", () => ({
 }));
 vi.mock("../utils/notifications", () => ({
   initNotifications: vi.fn(),
-  notifyStuck: vi.fn(),
   notifyLongRunningDone: vi.fn(),
 }));
 
@@ -182,49 +180,7 @@ describe("structuralClone", () => {
 });
 
 // =====================================================================
-// Suite 2: Session-Scoped Stuck Overlay Dismissal
-// =====================================================================
-
-describe("Session-scoped DISMISS_STUCK_OVERLAY", () => {
-  it("only clears overlay for the specified session", () => {
-    let state = initialState;
-    // Show overlay for s1
-    state = sessionReducer(state, { type: "SHOW_STUCK_OVERLAY", sessionId: "s1" });
-    expect(state.ui.stuckOverlaySessionId).toBe("s1");
-
-    // Dismiss s2 (different session) — should NOT clear s1's overlay
-    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY", sessionId: "s2" });
-    expect(state.ui.stuckOverlaySessionId).toBe("s1");
-    expect(state.ui.dismissedStuckSessions.has("s2")).toBe(true);
-  });
-
-  it("clears overlay when matching session is dismissed", () => {
-    let state = initialState;
-    state = sessionReducer(state, { type: "SHOW_STUCK_OVERLAY", sessionId: "s1" });
-    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY", sessionId: "s1" });
-    expect(state.ui.stuckOverlaySessionId).toBeNull();
-    expect(state.ui.dismissedStuckSessions.has("s1")).toBe(true);
-  });
-
-  it("multi-session isolation: dismissing A does not affect B", () => {
-    let state = initialState;
-
-    // Show and dismiss A
-    state = sessionReducer(state, { type: "SHOW_STUCK_OVERLAY", sessionId: "A" });
-    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY", sessionId: "A" });
-
-    // Show B
-    state = sessionReducer(state, { type: "SHOW_STUCK_OVERLAY", sessionId: "B" });
-    expect(state.ui.stuckOverlaySessionId).toBe("B");
-
-    // Dismiss A again (no-op on overlay since B is showing)
-    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY", sessionId: "A" });
-    expect(state.ui.stuckOverlaySessionId).toBe("B"); // B still showing
-  });
-});
-
-// =====================================================================
-// Suite 3: Injection Lock
+// Suite 2: Injection Lock
 // =====================================================================
 
 describe("Injection lock (ACQUIRE/RELEASE)", () => {
@@ -387,19 +343,6 @@ describe("Multi-session state isolation", () => {
     state = sessionReducer(state, { type: "ACQUIRE_INJECTION_LOCK", sessionId: "s1" });
     expect(state.injectionLocks["s1"]).toBe(true);
     expect(state.injectionLocks["s2"]).toBeUndefined();
-  });
-
-  it("stuck overlay belongs to specific session and dismissal is scoped", () => {
-    let state = initialState;
-    state = sessionReducer(state, { type: "SHOW_STUCK_OVERLAY", sessionId: "s1" });
-
-    // Dismissing s2 should NOT affect s1 overlay
-    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY", sessionId: "s2" });
-    expect(state.ui.stuckOverlaySessionId).toBe("s1"); // s1 still showing
-
-    // Dismissing s1 should clear it
-    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY", sessionId: "s1" });
-    expect(state.ui.stuckOverlaySessionId).toBeNull();
   });
 });
 

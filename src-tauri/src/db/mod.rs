@@ -23,21 +23,6 @@ pub struct ExecutionNode {
     pub metadata: Option<String>,
 }
 
-// ─── Error Patterns ──────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ErrorPattern {
-    pub id: i64,
-    pub project_id: Option<String>,
-    pub fingerprint: String,
-    pub raw_sample: Option<String>,
-    pub occurrence_count: i64,
-    pub last_seen: Option<i64>,
-    pub resolution: Option<String>,
-    pub resolution_verified: bool,
-    pub created_at: i64,
-}
-
 // ─── Command Patterns ────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,16 +52,6 @@ pub struct ContextSnapshotEntry {
     pub version: i64,
     pub context_json: String,
     pub created_at: i64,
-}
-
-// ─── Error Correlations ──────────────────────────────────────────────
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ErrorCorrelation {
-    pub session_id: String,
-    pub session_label: String,
-    pub last_seen: i64,
-    pub occurrence_count: i64,
 }
 
 // ─── Cost by Project ─────────────────────────────────────────────────
@@ -739,57 +714,6 @@ impl Database {
         Ok(result)
     }
 
-    // ─── Error Patterns ──────────────────────────────────────────
-
-    pub fn upsert_error_pattern(&self, project_id: Option<&str>, fingerprint: &str, raw_sample: &str) -> Result<ErrorPattern, String> {
-        let now_ts = chrono::Utc::now().timestamp();
-        self.conn.execute(
-            "INSERT INTO error_patterns (project_id, fingerprint, raw_sample, occurrence_count, last_seen)
-             VALUES (?1, ?2, ?3, 1, ?4)
-             ON CONFLICT(project_id, fingerprint) DO UPDATE SET
-                occurrence_count = occurrence_count + 1,
-                last_seen = ?4,
-                raw_sample = ?3",
-            params![project_id, fingerprint, raw_sample, now_ts],
-        ).map_err(|e| e.to_string())?;
-
-        self.find_error_pattern(project_id, fingerprint)
-            .and_then(|opt| opt.ok_or_else(|| "Failed to fetch upserted pattern".into()))
-    }
-
-    pub fn find_error_pattern(&self, project_id: Option<&str>, fingerprint: &str) -> Result<Option<ErrorPattern>, String> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, project_id, fingerprint, raw_sample, occurrence_count, last_seen, resolution, resolution_verified, created_at
-             FROM error_patterns WHERE (project_id = ?1 OR (project_id IS NULL AND ?1 IS NULL)) AND fingerprint = ?2"
-        ).map_err(|e| e.to_string())?;
-
-        let result = stmt.query_row(params![project_id, fingerprint], |row| {
-            Ok(ErrorPattern {
-                id: row.get(0)?, project_id: row.get(1)?, fingerprint: row.get(2)?,
-                raw_sample: row.get(3)?, occurrence_count: row.get(4)?, last_seen: row.get(5)?,
-                resolution: row.get(6)?, resolution_verified: row.get::<_, i32>(7)? != 0,
-                created_at: row.get(8)?,
-            })
-        }).ok();
-        Ok(result)
-    }
-
-    pub fn set_error_resolution(&self, id: i64, resolution: &str) -> Result<(), String> {
-        self.conn.execute(
-            "UPDATE error_patterns SET resolution = ?1, resolution_verified = 0 WHERE id = ?2",
-            params![resolution, id],
-        ).map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    pub fn verify_error_resolution(&self, id: i64) -> Result<(), String> {
-        self.conn.execute(
-            "UPDATE error_patterns SET resolution_verified = 1 WHERE id = ?1",
-            params![id],
-        ).map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
     // ─── Command Patterns ────────────────────────────────────────
 
     pub fn record_command_sequence(&self, project_id: Option<&str>, sequence_json: &str, next_command: &str) -> Result<(), String> {
@@ -1032,97 +956,6 @@ impl Database {
         ).map_err(|e| e.to_string())?;
         stmt.query_row(params![session_id], |row| row.get(0))
             .map_err(|e| e.to_string())
-    }
-
-    // ─── Error Session Tracking ──────────────────────────────────
-
-    pub fn upsert_error_session(&self, error_pattern_id: i64, session_id: &str) -> Result<(), String> {
-        let now_ts = chrono::Utc::now().timestamp();
-        self.conn.execute(
-            "INSERT INTO error_sessions (error_pattern_id, session_id, last_seen, occurrence_count)
-             VALUES (?1, ?2, ?3, 1)
-             ON CONFLICT(error_pattern_id, session_id) DO UPDATE SET
-                occurrence_count = occurrence_count + 1,
-                last_seen = ?3",
-            params![error_pattern_id, session_id, now_ts],
-        ).map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    pub fn find_error_correlations(
-        &self, fingerprint: &str, project_id: Option<&str>, exclude_session: &str, limit: i64,
-    ) -> Result<Vec<ErrorCorrelation>, String> {
-        let mut stmt = self.conn.prepare(
-            "SELECT es.session_id, s.label, es.last_seen, es.occurrence_count
-             FROM error_sessions es
-             JOIN error_patterns ep ON ep.id = es.error_pattern_id
-             JOIN sessions s ON s.id = es.session_id
-             WHERE ep.fingerprint = ?1
-               AND (ep.project_id = ?2 OR (ep.project_id IS NULL AND ?2 IS NULL))
-               AND es.session_id != ?3
-             ORDER BY es.last_seen DESC
-             LIMIT ?4"
-        ).map_err(|e| e.to_string())?;
-
-        let rows = stmt.query_map(params![fingerprint, project_id, exclude_session, limit], |row| {
-            Ok(ErrorCorrelation {
-                session_id: row.get(0)?,
-                session_label: row.get(1)?,
-                last_seen: row.get(2)?,
-                occurrence_count: row.get(3)?,
-            })
-        }).map_err(|e| e.to_string())?;
-
-        let mut entries = Vec::new();
-        for row in rows { entries.push(row.map_err(|e| e.to_string())?); }
-        Ok(entries)
-    }
-
-    // ─── Error Resolutions ───────────────────────────────────────
-
-    pub fn get_error_resolutions(&self, project_id: Option<&str>, limit: i64) -> Result<Vec<ErrorPattern>, String> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, project_id, fingerprint, raw_sample, occurrence_count, last_seen, resolution, resolution_verified, created_at
-             FROM error_patterns
-             WHERE (project_id = ?1 OR (project_id IS NULL AND ?1 IS NULL))
-               AND resolution IS NOT NULL
-             ORDER BY last_seen DESC LIMIT ?2"
-        ).map_err(|e| e.to_string())?;
-
-        let rows = stmt.query_map(params![project_id, limit], |row| {
-            Ok(ErrorPattern {
-                id: row.get(0)?, project_id: row.get(1)?, fingerprint: row.get(2)?,
-                raw_sample: row.get(3)?, occurrence_count: row.get(4)?, last_seen: row.get(5)?,
-                resolution: row.get(6)?, resolution_verified: row.get::<_, i32>(7)? != 0,
-                created_at: row.get(8)?,
-            })
-        }).map_err(|e| e.to_string())?;
-
-        let mut entries = Vec::new();
-        for row in rows { entries.push(row.map_err(|e| e.to_string())?); }
-        Ok(entries)
-    }
-
-    /// Simplified error resolutions for context assembly: (fingerprint, resolution, occurrence_count)
-    pub fn get_error_resolutions_for_context(&self, _session_id: &str) -> Result<Vec<(String, String, i64)>, String> {
-        let mut stmt = self.conn.prepare(
-            "SELECT fingerprint, resolution, occurrence_count
-             FROM error_patterns
-             WHERE resolution IS NOT NULL
-             ORDER BY last_seen DESC LIMIT 10"
-        ).map_err(|e| e.to_string())?;
-
-        let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, i64>(2)?,
-            ))
-        }).map_err(|e| e.to_string())?;
-
-        let mut entries = Vec::new();
-        for row in rows { entries.push(row.map_err(|e| e.to_string())?); }
-        Ok(entries)
     }
 
     // ─── Realm Operations ─────────────────────────────────────────
@@ -1509,20 +1342,6 @@ pub fn get_execution_node(state: State<'_, AppState>, id: i64) -> Result<Option<
     db.get_execution_node(id)
 }
 
-// ─── Error Pattern Commands ──────────────────────────────────────────
-
-#[tauri::command]
-pub fn find_error_match(state: State<'_, AppState>, project_id: Option<String>, fingerprint: String) -> Result<Option<ErrorPattern>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.find_error_pattern(project_id.as_deref(), &fingerprint)
-}
-
-#[tauri::command]
-pub fn set_error_resolution(state: State<'_, AppState>, id: i64, resolution: String) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.set_error_resolution(id, &resolution)
-}
-
 // ─── Context Pin Commands ────────────────────────────────────────────
 
 #[tauri::command]
@@ -1586,25 +1405,6 @@ pub fn get_context_snapshot(state: State<'_, AppState>, session_id: String, vers
 pub fn get_execution_nodes_count(state: State<'_, AppState>, session_id: String) -> Result<i64, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.get_execution_nodes_count(&session_id)
-}
-
-// ─── Error Correlation Commands ──────────────────────────────────────
-
-#[tauri::command]
-pub fn find_error_correlations(
-    state: State<'_, AppState>,
-    fingerprint: String, project_id: Option<String>, exclude_session: String, limit: Option<i64>,
-) -> Result<Vec<ErrorCorrelation>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.find_error_correlations(&fingerprint, project_id.as_deref(), &exclude_session, limit.unwrap_or(5))
-}
-
-// ─── Error Resolutions Command ──────────────────────────────────────
-
-#[tauri::command]
-pub fn get_error_resolutions(state: State<'_, AppState>, project_id: Option<String>, limit: Option<i64>) -> Result<Vec<ErrorPattern>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.get_error_resolutions(project_id.as_deref(), limit.unwrap_or(10))
 }
 
 // ─── Cost by Project Command ─────────────────────────────────────────

@@ -27,9 +27,7 @@ export type {
 } from "./context";
 
 export type {
-  ErrorMatchEvent,
   CommandPredictionEvent,
-  ErrorCorrelation,
 } from "./events";
 
 export type { Project } from "./project";

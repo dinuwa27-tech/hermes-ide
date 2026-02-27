@@ -4,15 +4,14 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { SessionData, useExecutionMode, useSession } from "../state/SessionContext";
 import { addWorkspacePath as apiAddWorkspacePath } from "../api/sessions";
-import { sendShortcutCommand } from "../terminal/TerminalPool";
 import { getSessionProjects } from "../api/projects";
-import { addContextPin, removeContextPin, findErrorCorrelations } from "../api/context";
+import { addContextPin, removeContextPin } from "../api/context";
 import { getAllMemory, saveMemory, deleteMemory } from "../api/memory";
 import { useFileTree, FileTreeNode } from "../hooks/useFileTree";
 import { useContextState } from "../hooks/useContextState";
 import { ContextStatusBar } from "./ContextStatusBar";
 import { ContextPreview } from "./ContextPreview";
-import type { PersistedMemory, ErrorMatchEvent, ErrorCorrelation } from "../types";
+import type { PersistedMemory } from "../types";
 
 interface ContextPanelProps {
   session: SessionData;
@@ -28,14 +27,6 @@ function formatCost(n: number): string {
   if (n === 0) return "$0.00";
   if (n < 0.01) return "<$0.01";
   return `$${n.toFixed(2)}`;
-}
-
-function timeAgo(ts: number): string {
-  const diff = Math.floor(Date.now() / 1000 - ts);
-  if (diff < 60) return "just now";
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
 }
 
 const Sparkline = memo(function Sparkline({ data, color, width = 120, height = 24 }: { data: number[]; color: string; width?: number; height?: number }) {
@@ -67,10 +58,6 @@ function ToolBar({ tool, count, maxCount }: { tool: string; count: number; maxCo
       <span className="ctx-tool-count mono">{count}</span>
     </div>
   );
-}
-
-function sendCommand(sessionId: string, command: string) {
-  sendShortcutCommand(sessionId, command);
 }
 
 // File Tree component (F5)
@@ -276,28 +263,23 @@ function WorkspaceCompact({ cwd, extraPaths, workspaceInput, setWorkspaceInput, 
 
 // ─── Constants ──────────────────────────────────────────────────────
 const COPY_FEEDBACK_MS = 2000;
-const MAX_ERROR_CORRELATIONS = 3;
-
 export function ContextPanel({ session }: ContextPanelProps) {
   const { metrics, detected_agent } = session;
   const mode = useExecutionMode(session.id);
-  const { state: sessionState, setActive, dispatch } = useSession();
+  const { state: sessionState, dispatch } = useSession();
   const contextManager = useContextState(session, mode);
   const [workspaceInput, setWorkspaceInput] = useState("");
   const [persistedMemory, setPersistedMemory] = useState<PersistedMemory[]>([]);
   const [memoryKeyInput, setMemoryKeyInput] = useState("");
   const [memoryValueInput, setMemoryValueInput] = useState("");
   const [showMemoryAdd, setShowMemoryAdd] = useState(false);
-  const [errorMatches, setErrorMatches] = useState<ErrorMatchEvent[]>([]);
   const [showPinAdd, setShowPinAdd] = useState(false);
   const [pinKind, setPinKind] = useState<string>("file");
   const [pinTarget, setPinTarget] = useState("");
   const [pinScope, setPinScope] = useState<"project" | "session">("project");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [memoryScopeInput, setMemoryScopeInput] = useState<"project" | "global">("project");
-  const [correlations, setCorrelations] = useState<Record<string, ErrorCorrelation[]>>({});
   const [copyDone, setCopyDone] = useState(false);
-  const [expandedErrors, setExpandedErrors] = useState<Set<string>>(new Set());
 
   // Derive primary project id for project-scoped operations
   const primaryProjectId = contextManager.context.realms.length > 0
@@ -339,39 +321,6 @@ export function ContextPanel({ session }: ContextPanelProps) {
     };
     loadMemory();
   }, [session.id, primaryProjectId]);
-
-  // Listen for error-matched events
-  useEffect(() => {
-    let cancelled = false;
-    let unlisten: (() => void) | null = null;
-    listen<ErrorMatchEvent>(`error-matched-${session.id}`, (event) => {
-      if (cancelled) return;
-      setErrorMatches((prev) => {
-        const existing = prev.findIndex((e) => e.fingerprint === event.payload.fingerprint);
-        if (existing >= 0) {
-          const updated = [...prev];
-          updated[existing] = event.payload;
-          return updated;
-        }
-        return [...prev.slice(-9), event.payload];
-      });
-
-      // Fetch correlations for this error (F6)
-      findErrorCorrelations({
-        fingerprint: event.payload.fingerprint,
-        projectId: session.working_directory,
-        excludeSession: session.id,
-        limit: MAX_ERROR_CORRELATIONS,
-      }).then((corrs) => {
-        if (!cancelled && corrs.length > 0) {
-          setCorrelations((prev) => ({ ...prev, [event.payload.fingerprint]: corrs }));
-        }
-      }).catch((err) => console.warn("[ContextPanel] Failed to load error correlations:", err));
-    }).then((u) => {
-      if (cancelled) { u(); } else { unlisten = u; }
-    });
-    return () => { cancelled = true; unlisten?.(); };
-  }, [session.id, session.working_directory]);
 
   const addPin = useCallback(async () => {
     if (!pinTarget.trim()) return;
@@ -759,25 +708,13 @@ export function ContextPanel({ session }: ContextPanelProps) {
         )}
 
         {/* Health — hide when nothing to report */}
-        {(metrics.output_lines > 0 || metrics.error_count > 0) && (
+        {metrics.output_lines > 0 && (
           <div className="ctx-section">
             <div className="ctx-section-title">Health</div>
             <div className="ctx-kv">
               <span>Output</span>
               <span className="mono">{metrics.output_lines.toLocaleString()} lines</span>
             </div>
-            <div className="ctx-kv">
-              <span>Errors</span>
-              <span className={`mono ${metrics.error_count > 0 ? "text-red" : ""}`}>{metrics.error_count}</span>
-            </div>
-            {metrics.stuck_score > 0.5 && (
-              <div className="ctx-kv">
-                <span>Status</span>
-                <span className={`mono ${metrics.stuck_score > 0.7 ? "text-red" : "text-yellow"}`}>
-                  {metrics.stuck_score > 0.7 ? "Stuck" : "Struggling"}
-                </span>
-              </div>
-            )}
           </div>
         )}
 
@@ -852,109 +789,6 @@ export function ContextPanel({ session }: ContextPanelProps) {
         )}
 
         {/* Recent Errors + Error Intelligence + Correlations (F6) — Tiered Display */}
-        {(metrics.recent_errors.length > 0 || errorMatches.length > 0) && (
-          <div className="ctx-section">
-            <div className="ctx-section-title">
-              Errors ({metrics.recent_errors.length})
-              <button
-                className="ctx-error-copy-btn"
-                onClick={() => {
-                  const last3 = metrics.recent_actions.slice(-3).map((a) => a.command).join("\n");
-                  const errText = metrics.recent_errors.slice(-3).join("\n");
-                  const text = `CWD: ${session.working_directory}\n\nRecent commands:\n${last3}\n\nErrors:\n${errText}`;
-                  navigator.clipboard.writeText(text).catch(console.warn);
-                }}
-                title="Copy errors with context"
-              >
-                Copy
-              </button>
-            </div>
-            {/* Sorted: fix-available first, then seen-multiple, then new */}
-            {[...errorMatches]
-              .sort((a, b) => {
-                if (a.resolution && !b.resolution) return -1;
-                if (!a.resolution && b.resolution) return 1;
-                return b.occurrence_count - a.occurrence_count;
-              })
-              .map((match) => (
-              <div key={match.fingerprint}>
-                <div className="ctx-error-match">
-                  <div className="ctx-error-match-header">
-                    {match.resolution ? (
-                      <span className="ctx-error-tier-badge ctx-error-tier-fix">Fix</span>
-                    ) : match.occurrence_count > 1 ? (
-                      <span className="ctx-error-tier-badge ctx-error-tier-seen">Seen &times;{match.occurrence_count}</span>
-                    ) : (
-                      <span className="ctx-error-tier-badge ctx-error-tier-new">New</span>
-                    )}
-                    {match.resolution && (
-                      <span className="ctx-error-match-resolution">
-                        {match.resolution}
-                        {mode === "assisted" && (
-                          <button
-                            className="ctx-error-apply-btn"
-                            onClick={() => sendCommand(session.id, match.resolution!)}
-                          >
-                            Apply
-                          </button>
-                        )}
-                      </span>
-                    )}
-                    {!match.resolution && match.occurrence_count > 1 && (
-                      <span className="ctx-error-match-count">Seen {match.occurrence_count}x</span>
-                    )}
-                  </div>
-                </div>
-                {correlations[match.fingerprint]?.map((corr) => (
-                  <div key={corr.session_id} className="ctx-error-correlation">
-                    Also in:{" "}
-                    <span
-                      className="ctx-error-correlation-link"
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => setActive(corr.session_id)}
-                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setActive(corr.session_id); } }}
-                    >
-                      {corr.session_label}
-                    </span>
-                    {" "}({timeAgo(corr.last_seen)})
-                  </div>
-                ))}
-              </div>
-            ))}
-            <div className="ctx-error-list">
-              {metrics.recent_errors.slice(-5).map((err, i) => {
-                const errKey = `${i}-${err.slice(0, 80)}`;
-                return (
-                  <div
-                    key={errKey}
-                    className={`ctx-error-entry mono ${expandedErrors.has(errKey) ? "ctx-error-entry-expanded" : ""}`}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setExpandedErrors((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(errKey)) next.delete(errKey);
-                      else next.add(errKey);
-                      return next;
-                    })}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        setExpandedErrors((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(errKey)) next.delete(errKey);
-                          else next.add(errKey);
-                          return next;
-                        });
-                      }
-                    }}
-                  >{err}</div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
         {/* Files (F5 — tree view) */}
         {metrics.files_touched.length > 0 && (
           <div className="ctx-section">

@@ -102,20 +102,6 @@ export function StatusBar({ onOpenShortcuts }: StatusBarProps) {
             </span>
           </>
         )}
-        {active && active.metrics.error_count > 0 && (
-          <>
-            <span className="status-bar-divider" />
-            <span className="status-bar-item text-red">{active.metrics.error_count} errors</span>
-          </>
-        )}
-        {active && active.metrics.stuck_score > 0.5 && (
-          <>
-            <span className="status-bar-divider" />
-            <span className="status-bar-item status-bar-stuck">
-              {active.metrics.stuck_score > 0.7 ? "Stuck" : "Struggling"}
-            </span>
-          </>
-        )}
       </div>
       <div className="status-bar-right">
         {hasTokens && (

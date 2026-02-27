@@ -10,14 +10,6 @@ export async function initNotifications(): Promise<void> {
   }
 }
 
-export function notifyStuck(sessionLabel: string): void {
-  if (!permissionGranted) return;
-  sendNotification({
-    title: "Session may be stuck",
-    body: `"${sessionLabel}" is showing repeated errors and may need intervention.`,
-  });
-}
-
 export function notifyLongRunningDone(sessionLabel: string): void {
   if (!permissionGranted) return;
   sendNotification({

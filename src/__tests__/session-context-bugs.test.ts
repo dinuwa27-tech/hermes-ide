@@ -1,14 +1,12 @@
 /**
- * Tests for 10 bugs found in sessions and context management.
+ * Tests for bugs found in sessions and context management.
  *
  * Bug 1:  SESSION_REMOVED didn't clean up executionModes (memory leak)
  * Bug 2:  SESSION_REMOVED didn't clean up autoToast referencing removed session
  * Bug 3:  copyContextToClipboard hardcoded version=0 and mode="manual"
- * Bug 4:  SHOW_STUCK_OVERLAY dispatched for already-dismissed sessions
  * Bug 5:  useContextState listen effects leaked listeners on rapid session switches
  * Bug 6:  formatContextMarkdown memory dedup favored ephemeral memoryFacts over persistedMemory
  * Bug 7:  Context cache never invalidated on CWD change (stale suggestions)
- * Bug 8:  Stuck overlay never auto-dismissed when stuck_score dropped below threshold
  * Bug 9:  useContextState sync effect fired on every SESSION_UPDATED due to unstable array deps
  * Bug 10: TerminalPool.destroy didn't clean up sessionShellEnv (memory leak)
  */
@@ -31,7 +29,6 @@ vi.mock("../terminal/TerminalPool", () => ({
 }));
 vi.mock("../utils/notifications", () => ({
   initNotifications: vi.fn(),
-  notifyStuck: vi.fn(),
   notifyLongRunningDone: vi.fn(),
 }));
 
@@ -271,50 +268,6 @@ describe("Bug 3: copyContextToClipboard accepts version and execution mode", () 
 });
 
 // =====================================================================
-// Bug 4: SHOW_STUCK_OVERLAY for already-dismissed sessions
-// =====================================================================
-
-describe("Bug 4: SHOW_STUCK_OVERLAY respects dismissed sessions", () => {
-  it("DISMISS_STUCK_OVERLAY adds session to dismissed set", () => {
-    let state = sessionReducer(initialState, {
-      type: "SHOW_STUCK_OVERLAY",
-      sessionId: "s1",
-    });
-    expect(state.ui.stuckOverlaySessionId).toBe("s1");
-
-    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY", sessionId: "s1" });
-    expect(state.ui.stuckOverlaySessionId).toBeNull();
-    expect(state.ui.dismissedStuckSessions.has("s1")).toBe(true);
-  });
-
-  it("SESSION_REMOVED clears dismissed entry for the removed session", () => {
-    let state = sessionReducer(initialState, {
-      type: "SESSION_UPDATED",
-      session: makeSession({ id: "s1" }),
-    });
-    state = sessionReducer(state, { type: "SHOW_STUCK_OVERLAY", sessionId: "s1" });
-    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY", sessionId: "s1" });
-    expect(state.ui.dismissedStuckSessions.has("s1")).toBe(true);
-
-    state = sessionReducer(state, { type: "SESSION_REMOVED", id: "s1" });
-    expect(state.ui.dismissedStuckSessions.has("s1")).toBe(false);
-  });
-
-  it("multiple sessions can be independently dismissed", () => {
-    let state = initialState;
-
-    state = sessionReducer(state, { type: "SHOW_STUCK_OVERLAY", sessionId: "s1" });
-    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY", sessionId: "s1" });
-
-    state = sessionReducer(state, { type: "SHOW_STUCK_OVERLAY", sessionId: "s2" });
-    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY", sessionId: "s2" });
-
-    expect(state.ui.dismissedStuckSessions.has("s1")).toBe(true);
-    expect(state.ui.dismissedStuckSessions.has("s2")).toBe(true);
-  });
-});
-
-// =====================================================================
 // Bug 5: useContextState listen effects leak test
 // (Can only test the pattern indirectly — verify the cancelled flag approach)
 // =====================================================================
@@ -489,60 +442,6 @@ describe("Bug 7: Context cache invalidation on CWD change", () => {
 });
 
 // =====================================================================
-// Bug 8: Stuck overlay auto-dismiss when stuck_score drops
-// =====================================================================
-
-describe("Bug 8: Stuck overlay auto-dismiss on recovery", () => {
-  it("DISMISS_STUCK_OVERLAY clears stuckOverlaySessionId", () => {
-    let state = sessionReducer(initialState, {
-      type: "SHOW_STUCK_OVERLAY",
-      sessionId: "s1",
-    });
-    expect(state.ui.stuckOverlaySessionId).toBe("s1");
-
-    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY", sessionId: "s1" });
-    expect(state.ui.stuckOverlaySessionId).toBeNull();
-  });
-
-  it("SESSION_UPDATED with low stuck_score after high stuck_score (reducer handles correctly)", () => {
-    // This test verifies the reducer state transitions are correct.
-    // The actual auto-dismiss logic is in the event handler in SessionProvider.
-    let state = sessionReducer(initialState, {
-      type: "SESSION_UPDATED",
-      session: makeSession({ id: "s1", metrics: {
-        ...makeSession().metrics,
-        stuck_score: 0.9,
-      }}),
-    });
-    state = sessionReducer(state, { type: "SHOW_STUCK_OVERLAY", sessionId: "s1" });
-    expect(state.ui.stuckOverlaySessionId).toBe("s1");
-
-    // When stuck_score drops, DISMISS_STUCK_OVERLAY should be dispatched
-    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY", sessionId: "s1" });
-    expect(state.ui.stuckOverlaySessionId).toBeNull();
-  });
-
-  it("SHOW_STUCK_OVERLAY then DISMISS_STUCK_OVERLAY cycle works correctly", () => {
-    let state = initialState;
-
-    // First stuck -> dismiss cycle
-    state = sessionReducer(state, { type: "SHOW_STUCK_OVERLAY", sessionId: "s1" });
-    expect(state.ui.stuckOverlaySessionId).toBe("s1");
-    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY", sessionId: "s1" });
-    expect(state.ui.stuckOverlaySessionId).toBeNull();
-    expect(state.ui.dismissedStuckSessions.has("s1")).toBe(true);
-
-    // Second stuck on different session -> dismiss
-    state = sessionReducer(state, { type: "SHOW_STUCK_OVERLAY", sessionId: "s2" });
-    expect(state.ui.stuckOverlaySessionId).toBe("s2");
-    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY", sessionId: "s2" });
-    expect(state.ui.stuckOverlaySessionId).toBeNull();
-    expect(state.ui.dismissedStuckSessions.has("s1")).toBe(true);
-    expect(state.ui.dismissedStuckSessions.has("s2")).toBe(true);
-  });
-});
-
-// =====================================================================
 // Bug 9: useContextState sync effect stability
 // =====================================================================
 
@@ -704,19 +603,9 @@ describe("Integration: Multi-bug session lifecycle", () => {
       sessionId: "s1",
     });
 
-    // Show stuck overlay for this session
-    state = sessionReducer(state, {
-      type: "SHOW_STUCK_OVERLAY",
-      sessionId: "s1",
-    });
-
-    // Dismiss stuck overlay (adds to dismissed set)
-    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY", sessionId: "s1" });
-
     // Verify all per-session state exists
     expect(state.executionModes["s1"]).toBe("autonomous");
     expect(state.ui.autoToast).not.toBeNull();
-    expect(state.ui.dismissedStuckSessions.has("s1")).toBe(true);
 
     // Remove session — all per-session state should be cleaned up
     state = sessionReducer(state, { type: "SESSION_REMOVED", id: "s1" });
@@ -724,7 +613,6 @@ describe("Integration: Multi-bug session lifecycle", () => {
     expect(state.sessions["s1"]).toBeUndefined();
     expect(state.executionModes["s1"]).toBeUndefined();
     expect(state.ui.autoToast).toBeNull();
-    expect(state.ui.dismissedStuckSessions.has("s1")).toBe(false);
   });
 
   it("removing one session preserves all state for other sessions", () => {

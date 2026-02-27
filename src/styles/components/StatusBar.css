@@ -54,12 +54,6 @@
   margin-left: 2px;
 }
 
-.status-bar-stuck {
-  color: var(--red);
-  font-weight: 600;
-  animation: pulse 2s ease-in-out infinite;
-}
-
 .status-bar-tokens {
   color: var(--accent);
   font-family: var(--font-mono);

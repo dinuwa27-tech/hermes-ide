@@ -1,10 +1,10 @@
 /**
  * QA Audit Bug Fixes Test Suite
  *
- * Covers 10 bugs found during comprehensive QA audit:
- * 1. Memory leak: stuckNotified/busyTimestamps/closingSessionIds not cleaned on session-removed
+ * Covers bugs found during comprehensive QA audit:
+ * 1. Memory leak: busyTimestamps/closingSessionIds not cleaned on session-removed
  * 2. Error list index keys causing wrong expansion state
- * 3. Clipboard errors not caught in ContextPreview/StuckOverlay
+ * 3. Clipboard errors not caught in ContextPreview
  * 4. ContextPreview copy timer leak on unmount
  * 5. Index keys in ToolTimeline, conventions, recent actions
  * 6. Accessibility: click handlers on non-interactive elements
@@ -32,7 +32,6 @@ vi.mock("../terminal/TerminalPool", () => ({
 }));
 vi.mock("../utils/notifications", () => ({
   initNotifications: vi.fn(),
-  notifyStuck: vi.fn(),
   notifyLongRunningDone: vi.fn(),
 }));
 
@@ -99,17 +98,6 @@ describe("SESSION_REMOVED comprehensive cleanup", () => {
 
     state = sessionReducer(state, { type: "SESSION_REMOVED", id: "s1" });
     expect(state.executionModes["s1"]).toBeUndefined();
-  });
-
-  it("cleans up dismissed stuck sessions on session removal", () => {
-    let state = initialState;
-    state = sessionReducer(state, { type: "SESSION_UPDATED", session: makeSession({ id: "s1" }) });
-    state = sessionReducer(state, { type: "SHOW_STUCK_OVERLAY", sessionId: "s1" });
-    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY", sessionId: "s1" });
-    expect(state.ui.dismissedStuckSessions.has("s1")).toBe(true);
-
-    state = sessionReducer(state, { type: "SESSION_REMOVED", id: "s1" });
-    expect(state.ui.dismissedStuckSessions.has("s1")).toBe(false);
   });
 
   it("clears auto toast when its session is removed", () => {
@@ -251,47 +239,7 @@ describe("Injection lock prevents concurrent context apply", () => {
 });
 
 // =====================================================================
-// Suite 5: Stuck overlay session scoping
-// =====================================================================
-
-describe("Stuck overlay lifecycle", () => {
-  it("SHOW_STUCK_OVERLAY sets the session id", () => {
-    const state = sessionReducer(initialState, { type: "SHOW_STUCK_OVERLAY", sessionId: "s1" });
-    expect(state.ui.stuckOverlaySessionId).toBe("s1");
-  });
-
-  it("showing a new session replaces the previous overlay", () => {
-    let state = sessionReducer(initialState, { type: "SHOW_STUCK_OVERLAY", sessionId: "s1" });
-    state = sessionReducer(state, { type: "SHOW_STUCK_OVERLAY", sessionId: "s2" });
-    expect(state.ui.stuckOverlaySessionId).toBe("s2");
-  });
-
-  it("dismissing adds to dismissed set even if no overlay was showing", () => {
-    const state = sessionReducer(initialState, { type: "DISMISS_STUCK_OVERLAY", sessionId: "phantom" });
-    expect(state.ui.dismissedStuckSessions.has("phantom")).toBe(true);
-    expect(state.ui.stuckOverlaySessionId).toBeNull(); // Was already null
-  });
-
-  it("full lifecycle: show → dismiss → re-show blocked by dismissed set", () => {
-    let state = initialState;
-    // Show s1
-    state = sessionReducer(state, { type: "SHOW_STUCK_OVERLAY", sessionId: "s1" });
-    expect(state.ui.stuckOverlaySessionId).toBe("s1");
-
-    // Dismiss s1
-    state = sessionReducer(state, { type: "DISMISS_STUCK_OVERLAY", sessionId: "s1" });
-    expect(state.ui.stuckOverlaySessionId).toBeNull();
-    expect(state.ui.dismissedStuckSessions.has("s1")).toBe(true);
-
-    // Re-show s1 — reducer allows it, but the SessionProvider effect filters it
-    state = sessionReducer(state, { type: "SHOW_STUCK_OVERLAY", sessionId: "s1" });
-    expect(state.ui.stuckOverlaySessionId).toBe("s1"); // Set in reducer
-    // The effect in SessionProvider would dispatch DISMISS again
-  });
-});
-
-// =====================================================================
-// Suite 6: Layout actions during session removal
+// Suite 5: Layout actions during session removal
 // =====================================================================
 
 describe("Layout cleanup on SESSION_REMOVED", () => {
@@ -422,9 +370,6 @@ describe("Multi-session state isolation (comprehensive)", () => {
     state = sessionReducer(state, { type: "ACQUIRE_INJECTION_LOCK", sessionId: "s1" });
     state = sessionReducer(state, { type: "ACQUIRE_INJECTION_LOCK", sessionId: "s2" });
 
-    // Show stuck overlay for s2
-    state = sessionReducer(state, { type: "SHOW_STUCK_OVERLAY", sessionId: "s2" });
-
     // Verify all independent
     expect(state.sessions["s1"].phase).toBe("idle");
     expect(state.sessions["s2"].phase).toBe("busy");
@@ -435,7 +380,6 @@ describe("Multi-session state isolation (comprehensive)", () => {
     expect(state.injectionLocks["s1"]).toBe(true);
     expect(state.injectionLocks["s2"]).toBe(true);
     expect(state.injectionLocks["s3"]).toBeUndefined();
-    expect(state.ui.stuckOverlaySessionId).toBe("s2");
 
     // Remove s2 — only s2 state should be cleaned
     state = sessionReducer(state, { type: "SESSION_REMOVED", id: "s2" });

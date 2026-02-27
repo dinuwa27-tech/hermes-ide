@@ -3,7 +3,6 @@ import "./styles/layout.css";
 import "./styles/themes.css";
 import "./styles/topbar.css";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { writeToSession } from "./api/sessions";
 import { sendShortcutCommand } from "./terminal/TerminalPool";
 import { createProject } from "./api/projects";
 import { SessionProvider, useSession, useActiveSession, useSessionList, useAutonomousSettings } from "./state/SessionContext";
@@ -17,7 +16,6 @@ import { SearchPanel } from "./components/SearchPanel";
 import { StatusBar } from "./components/StatusBar";
 import { CommandPalette } from "./components/CommandPalette";
 import { EmptyState } from "./components/EmptyState";
-import { StuckOverlay } from "./components/StuckOverlay";
 import { CloseSessionDialog } from "./components/CloseSessionDialog";
 import { Settings } from "./components/Settings";
 import { ShortcutsPanel } from "./components/ShortcutsPanel";
@@ -94,21 +92,12 @@ function AppContent() {
     return () => window.removeEventListener("keydown", handler);
   }, [state.layout, sessions, dispatch, setActive, ui.commandPaletteOpen, settingsOpen, composerOpen, sessionCreatorOpen, shortcutsOpen, costDashboardOpen, workspaceOpen, projectPickerOpen]);
 
-  const sendCtrlC = useCallback(() => {
-    const id = ui.stuckOverlaySessionId;
-    if (!id) return;
-    writeToSession(id, btoa("\x03")).catch(console.error);
-    dispatch({ type: "DISMISS_STUCK_OVERLAY", sessionId: id });
-  }, [ui.stuckOverlaySessionId, dispatch]);
-
   const handleAutoExecute = useCallback(() => {
     if (!ui.autoToast) return;
     const { command, sessionId } = ui.autoToast;
     sendShortcutCommand(sessionId, command);
     dispatch({ type: "DISMISS_AUTO_TOAST" });
   }, [ui.autoToast, dispatch]);
-
-  const stuckSession = ui.stuckOverlaySessionId ? state.sessions[ui.stuckOverlaySessionId] : null;
 
   // Re-focus the active terminal when the app window regains focus
   // (e.g. after a system dialog, Cmd+Tab, or notification steals focus).
@@ -406,14 +395,6 @@ function AppContent() {
         />
       )}
 
-      {stuckSession && (
-        <StuckOverlay
-          session={stuckSession}
-          onDismiss={() => dispatch({ type: "DISMISS_STUCK_OVERLAY", sessionId: stuckSession.id })}
-          onSendCtrlC={sendCtrlC}
-        />
-      )}
-
       {ui.flowMode && activeSession && (
         <FlowToast sessionId={activeSession.id} />
       )}
@@ -422,7 +403,7 @@ function AppContent() {
       {ui.autoToast && (
         <AutoToast
           command={ui.autoToast.command}
-          reason={ui.autoToast.reason as "prediction" | "error_fix"}
+          reason={ui.autoToast.reason as "prediction"}
           delayMs={autoSettings.cancelDelayMs}
           onCancel={() => dispatch({ type: "DISMISS_AUTO_TOAST" })}
           onExecute={handleAutoExecute}

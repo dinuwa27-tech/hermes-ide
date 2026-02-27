@@ -209,14 +209,6 @@ describe("Invariant 4: All UI shortcut callers use sendShortcutCommand", () => {
     expect(PROVIDER_ACTIONS).not.toContain("writeToSession");
   });
 
-  it("ContextPanel uses sendShortcutCommand", () => {
-    expect(CONTEXT_PANEL).toContain("sendShortcutCommand");
-  });
-
-  it("TerminalPane annotation apply uses sendShortcutCommand", () => {
-    expect(TERMINAL_PANE).toContain("sendShortcutCommand");
-  });
-
   it("App auto-execute uses sendShortcutCommand", () => {
     expect(APP).toContain("sendShortcutCommand");
   });

@@ -28,7 +28,6 @@ vi.mock("../terminal/TerminalPool", () => ({
 }));
 vi.mock("../utils/notifications", () => ({
   initNotifications: vi.fn(),
-  notifyStuck: vi.fn(),
   notifyLongRunningDone: vi.fn(),
 }));
 
@@ -290,9 +289,8 @@ describe("Suite 3: Apply Behavior", () => {
   it("SET_AUTONOMOUS_SETTINGS updates autonomous thresholds", () => {
     const state = sessionReducer(initialState, {
       type: "SET_AUTONOMOUS_SETTINGS",
-      settings: { errorMinOccurrences: 10, cancelDelayMs: 5000 },
+      settings: { cancelDelayMs: 5000 },
     });
-    expect(state.autonomousSettings.errorMinOccurrences).toBe(10);
     expect(state.autonomousSettings.cancelDelayMs).toBe(5000);
     // Unmodified setting is preserved
     expect(state.autonomousSettings.commandMinFrequency).toBe(

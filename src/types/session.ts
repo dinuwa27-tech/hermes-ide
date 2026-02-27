@@ -133,8 +133,6 @@ export type SessionAction =
   | { type: "TOGGLE_SIDEBAR" }
   | { type: "TOGGLE_PALETTE" }
   | { type: "CLOSE_PALETTE" }
-  | { type: "SHOW_STUCK_OVERLAY"; sessionId: string }
-  | { type: "DISMISS_STUCK_OVERLAY"; sessionId: string }
   | { type: "SET_EXECUTION_MODE"; sessionId: string; mode: ExecutionMode }
   | { type: "SET_DEFAULT_MODE"; mode: ExecutionMode }
   | { type: "TOGGLE_FLOW_MODE" }
@@ -142,7 +140,7 @@ export type SessionAction =
   | { type: "SHOW_AUTO_TOAST"; command: string; reason: string; sessionId: string }
   | { type: "DISMISS_AUTO_TOAST" }
   | { type: "TOGGLE_AUTO_APPLY" }
-  | { type: "SET_AUTONOMOUS_SETTINGS"; settings: Partial<{ errorMinOccurrences: number; commandMinFrequency: number; cancelDelayMs: number }> }
+  | { type: "SET_AUTONOMOUS_SETTINGS"; settings: Partial<{ commandMinFrequency: number; cancelDelayMs: number }> }
   // Injection lock actions
   | { type: "ACQUIRE_INJECTION_LOCK"; sessionId: string }
   | { type: "RELEASE_INJECTION_LOCK"; sessionId: string }

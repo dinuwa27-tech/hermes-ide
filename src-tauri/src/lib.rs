@@ -103,11 +103,6 @@ pub fn run() {
             db::get_execution_nodes,
             db::get_execution_node,
             db::get_execution_nodes_count,
-            // Error Patterns
-            db::find_error_match,
-            db::set_error_resolution,
-            db::find_error_correlations,
-            db::get_error_resolutions,
             // Context Pins
             db::add_context_pin,
             db::remove_context_pin,

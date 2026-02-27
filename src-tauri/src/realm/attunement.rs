@@ -339,14 +339,7 @@ pub fn assemble_context(
 
     estimated_tokens += memory.iter().map(|m| (m.key.len() + m.value.len()) / 4 + 3).sum::<usize>();
 
-    // Fetch error resolutions
-    let errors_raw = db.get_error_resolutions_for_context(session_id).unwrap_or_default();
-    let error_resolutions: Vec<ErrorContext> = errors_raw.iter().map(|e| ErrorContext {
-        fingerprint: e.0.clone(),
-        resolution: e.1.clone(),
-        occurrence_count: e.2,
-    }).collect();
-    estimated_tokens += error_resolutions.iter().map(|e| (e.fingerprint.len() + e.resolution.len()) / 4 + 5).sum::<usize>();
+    let error_resolutions: Vec<ErrorContext> = vec![];
 
     // Get latest context version
     let snapshots = db.get_context_snapshots(session_id).unwrap_or_default();

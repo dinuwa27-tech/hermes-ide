@@ -9,7 +9,7 @@ import { getSettings, getSetting } from "../api/settings";
 import { createTerminal, destroy as destroyTerminal, writeScrollback } from "../terminal/TerminalPool";
 import { applyTheme } from "../utils/themeManager";
 import { restoreWindowState } from "../utils/windowState";
-import { initNotifications, notifyStuck, notifyLongRunningDone } from "../utils/notifications";
+import { initNotifications, notifyLongRunningDone } from "../utils/notifications";
 import {
   LayoutNode, PaneLeaf,
   nextPaneId, nextSplitId,
@@ -37,7 +37,6 @@ interface SessionState {
   defaultMode: ExecutionMode;
   executionModes: Record<string, ExecutionMode>;
   autonomousSettings: {
-    errorMinOccurrences: number;
     commandMinFrequency: number;
     cancelDelayMs: number;
   };
@@ -53,8 +52,6 @@ interface SessionState {
     contextPanelOpen: boolean;
     sessionListCollapsed: boolean;
     commandPaletteOpen: boolean;
-    stuckOverlaySessionId: string | null;
-    dismissedStuckSessions: Set<string>;
     flowMode: boolean;
     timelineOpen: boolean;
     autoToast: { command: string; reason: string; sessionId: string } | null;
@@ -102,9 +99,6 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
         : (state.activeSessionId === action.id
           ? (ids.length > 0 ? ids[ids.length - 1] : null)
           : state.activeSessionId);
-      // Clean dismissed set
-      const newDismissed = new Set(state.ui.dismissedStuckSessions);
-      newDismissed.delete(action.id);
       // Clean per-session execution mode and injection lock
       const { [action.id]: _mode, ...restModes } = state.executionModes;
       const { [action.id]: _lock, ...restLocks } = state.injectionLocks;
@@ -124,7 +118,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
         injectionLocks: restLocks,
         pendingCloseSessionId: newPendingClose,
         layout: { root: newRoot, focusedPaneId: newFocused },
-        ui: { ...state.ui, dismissedStuckSessions: newDismissed, autoToast: newAutoToast },
+        ui: { ...state.ui, autoToast: newAutoToast },
       };
     }
     case "SET_ACTIVE": {
@@ -184,17 +178,6 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       return state.ui.commandPaletteOpen
         ? { ...state, ui: { ...state.ui, commandPaletteOpen: false } }
         : state;
-    case "SHOW_STUCK_OVERLAY":
-      return { ...state, ui: { ...state.ui, stuckOverlaySessionId: action.sessionId } };
-    case "DISMISS_STUCK_OVERLAY": {
-      const newDismissed = new Set(state.ui.dismissedStuckSessions);
-      newDismissed.add(action.sessionId);
-      // Only clear overlay if it belongs to the dismissed session
-      const newOverlayId = state.ui.stuckOverlaySessionId === action.sessionId
-        ? null
-        : state.ui.stuckOverlaySessionId;
-      return { ...state, ui: { ...state.ui, stuckOverlaySessionId: newOverlayId, dismissedStuckSessions: newDismissed } };
-    }
     case "SET_EXECUTION_MODE":
       return { ...state, executionModes: { ...state.executionModes, [action.sessionId]: action.mode } };
     case "SET_DEFAULT_MODE":
@@ -450,7 +433,6 @@ export const initialState: SessionState = {
   defaultMode: "manual" as ExecutionMode,
   executionModes: {},
   autonomousSettings: {
-    errorMinOccurrences: 3,
     commandMinFrequency: 5,
     cancelDelayMs: 3000,
   },
@@ -466,8 +448,6 @@ export const initialState: SessionState = {
     contextPanelOpen: true,
     sessionListCollapsed: false,
     commandPaletteOpen: false,
-    stuckOverlaySessionId: null,
-    dismissedStuckSessions: new Set(),
     flowMode: false,
     timelineOpen: false,
     autoToast: null,
@@ -495,7 +475,6 @@ const SessionContext = createContext<SessionContextValue | null>(null);
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(sessionReducer, initialState);
   const busyTimestamps = useRef<Map<string, number>>(new Map());
-  const stuckNotified = useRef<Set<string>>(new Set());
   const nudgeTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const closingSessionIds = useRef<Set<string>>(new Set());
 
@@ -561,22 +540,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        // Auto-show stuck overlay + notify (only if not dismissed for this session)
-        if (session.metrics.stuck_score > 0.7) {
-          if (!stuckNotified.current.has(session.id)) {
-            stuckNotified.current.add(session.id);
-            dispatch({ type: "SHOW_STUCK_OVERLAY", sessionId: session.id });
-            if (document.hidden) {
-              notifyStuck(session.label);
-            }
-          }
-        } else {
-          // Auto-dismiss stuck overlay when stuck_score drops below threshold
-          if (stuckNotified.current.has(session.id)) {
-            stuckNotified.current.delete(session.id);
-            dispatch({ type: "DISMISS_STUCK_OVERLAY", sessionId: session.id });
-          }
-        }
       });
       unlisteners.push(u1);
 
@@ -584,7 +547,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         destroyTerminal(event.payload);
         // Clean up refs that track per-session state (prevent memory leaks)
         busyTimestamps.current.delete(event.payload);
-        stuckNotified.current.delete(event.payload);
         closingSessionIds.current.delete(event.payload);
         // Clean up nudge timer if one exists for this session
         const existingTimer = nudgeTimers.current.get(event.payload);
@@ -623,7 +585,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         dispatch({
           type: "SET_AUTONOMOUS_SETTINGS",
           settings: {
-            errorMinOccurrences: s.auto_error_min_occurrences ? parseInt(s.auto_error_min_occurrences, 10) || 3 : 3,
             commandMinFrequency: s.auto_command_min_frequency ? parseInt(s.auto_command_min_frequency, 10) || 5 : 5,
             cancelDelayMs: s.auto_cancel_delay_ms ? parseInt(s.auto_cancel_delay_ms, 10) || 3000 : 3000,
           },
@@ -651,15 +612,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
     return () => { unlisteners.forEach((u) => u()); };
   }, []);
-
-  // Filter stuck overlay through dismissed set (in SHOW_STUCK_OVERLAY dispatch check)
-  // Done in a separate effect to avoid the reducer needing access to current state during event
-  useEffect(() => {
-    if (state.ui.stuckOverlaySessionId && state.ui.dismissedStuckSessions.has(state.ui.stuckOverlaySessionId)) {
-      dispatch({ type: "DISMISS_STUCK_OVERLAY", sessionId: state.ui.stuckOverlaySessionId });
-    }
-  }, [state.ui.stuckOverlaySessionId, state.ui.dismissedStuckSessions]);
-
 
   const createSession = useCallback(async (opts?: CreateSessionOpts) => {
     try {

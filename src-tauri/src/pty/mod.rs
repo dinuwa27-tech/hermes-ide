@@ -710,24 +710,6 @@ impl ProviderRegistry {
     }
 }
 
-// ─── Error Fingerprinting ────────────────────────────────────────────
-
-lazy_static! {
-    static ref FP_FILE_PATH_RE: Regex = Regex::new(
-        r"(?:/[\w.@-]+)+\.[\w]+"
-    ).unwrap();
-    static ref FP_NUMBER_RE: Regex = Regex::new(
-        r"\b\d+\b"
-    ).unwrap();
-}
-
-fn error_fingerprint(line: &str) -> String {
-    let lower = line.to_lowercase();
-    let no_paths = FP_FILE_PATH_RE.replace_all(&lower, "<path>");
-    let no_nums = FP_NUMBER_RE.replace_all(&no_paths, "<n>");
-    no_nums.split_whitespace().take(8).collect::<Vec<_>>().join(" ")
-}
-
 // ─── Node Builder (tracks command→output cycles) ────────────────────
 
 struct NodeBuilder {
@@ -782,16 +764,6 @@ struct CompletedNode {
     duration_ms: i64,
 }
 
-// ─── Error Match Event Payload ──────────────────────────────────────
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ErrorMatchEvent {
-    fingerprint: String,
-    occurrence_count: i64,
-    resolution: Option<String>,
-    raw_sample: Option<String>,
-}
-
 // ─── Command Prediction Event Payload ───────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -806,11 +778,7 @@ struct OutputAnalyzer {
     active_provider_idx: Option<usize>,
     stripped_buffer: String,
     line_count: u64,
-    error_count: u32,
-    recent_errors: VecDeque<String>,
     detected_agent: Option<AgentInfo>,
-    repeated_error_count: u32,
-    last_error_signature: Option<String>,
     is_busy: bool,
     pending_phase: Option<SessionPhase>,
     // Token ledger
@@ -840,14 +808,8 @@ struct OutputAnalyzer {
     last_input_line: Option<String>,
     // Command sequence tracking
     recent_commands: VecDeque<String>,
-    // Error fingerprint tracking
-    last_error_fingerprint: Option<String>,
-    had_error_in_node: bool,
     // Input line accumulation buffer
     input_line_buffer: String,
-    // Auto-resolution tracking
-    pending_error_fp: Option<String>,
-    pending_error_project: Option<String>,
     // Idle timeout tracking
     last_output_at: Option<std::time::Instant>,
     // Auto-launch / auto-inject tracking
@@ -865,11 +827,7 @@ impl OutputAnalyzer {
             active_provider_idx: None,
             stripped_buffer: String::new(),
             line_count: 0,
-            error_count: 0,
-            recent_errors: VecDeque::new(),
             detected_agent: None,
-            repeated_error_count: 0,
-            last_error_signature: None,
             is_busy: false,
             pending_phase: None,
             token_usage: HashMap::new(),
@@ -890,11 +848,7 @@ impl OutputAnalyzer {
             completed_nodes: VecDeque::new(),
             last_input_line: None,
             recent_commands: VecDeque::new(),
-            last_error_fingerprint: None,
-            had_error_in_node: false,
             input_line_buffer: String::new(),
-            pending_error_fp: None,
-            pending_error_project: None,
             last_output_at: None,
             shell_ready: false,
             pending_ai_launch: false,
@@ -916,7 +870,6 @@ impl OutputAnalyzer {
         let input = self.last_input_line.take();
         let kind = if self.detected_agent.is_some() { "ai_interaction" } else { "command" };
         self.node_builder = Some(NodeBuilder::new(kind, input, working_dir));
-        self.had_error_in_node = false;
     }
 
     fn finalize_node(&mut self, exit_code: Option<i32>) {
@@ -1077,28 +1030,6 @@ impl OutputAnalyzer {
                 builder.push_output(trimmed);
             }
 
-            // Error detection (universal)
-            if is_error_line(trimmed) {
-                self.error_count += 1;
-                let sig = error_signature(trimmed);
-                if self.last_error_signature.as_deref() == Some(&sig) {
-                    self.repeated_error_count += 1;
-                } else {
-                    self.repeated_error_count = 1;
-                    self.last_error_signature = Some(sig);
-                }
-                let truncated: String = trimmed.chars().take(200).collect();
-                self.recent_errors.push_back(truncated);
-                if self.recent_errors.len() > 20 {
-                    self.recent_errors.pop_front();
-                }
-
-                // Error fingerprinting for intelligence
-                let fp = error_fingerprint(trimmed);
-                self.last_error_fingerprint = Some(fp);
-                self.had_error_in_node = true;
-            }
-
             // Keep stripped buffer (last ~16KB, char-boundary safe)
             self.stripped_buffer.push_str(trimmed);
             self.stripped_buffer.push('\n');
@@ -1229,30 +1160,7 @@ impl OutputAnalyzer {
     }
 
     fn stuck_score(&self) -> f32 {
-        // Must be in busy phase to be considered stuck
-        if !self.is_busy {
-            return 0.0;
-        }
-
-        let mut score: f32 = 0.0;
-
-        // Primary signal: silence duration (no output while busy)
-        if let Some(last_output) = self.last_output_at {
-            let silence_secs = last_output.elapsed().as_secs();
-            if silence_secs > 30 { score += 0.4; }
-            if silence_secs > 60 { score += 0.2; }
-        }
-
-        // Secondary signal: repeated errors (capped contribution)
-        if self.repeated_error_count >= 5 { score += 0.3; }
-
-        // Tertiary signal: high error rate
-        if self.line_count > 10 {
-            let error_rate = self.error_count as f32 / self.line_count as f32;
-            if error_rate > 0.3 { score += 0.1; }
-        }
-
-        score.min(1.0)
+        0.0
     }
 
     fn take_pending_phase(&mut self) -> Option<SessionPhase> {
@@ -1268,13 +1176,13 @@ impl OutputAnalyzer {
 
         SessionMetrics {
             output_lines: self.line_count,
-            error_count: self.error_count,
-            stuck_score: self.stuck_score(),
+            error_count: 0,
+            stuck_score: 0.0,
             token_usage: usage,
             tool_calls: self.tool_calls.iter().rev().take(20).cloned().collect(),
             tool_call_summary: self.tool_call_summary.clone(),
             files_touched: self.files_ordered.clone(),
-            recent_errors: self.recent_errors.iter().cloned().collect(),
+            recent_errors: vec![],
             recent_actions: self.recent_actions.iter().cloned().collect(),
             available_actions: self.available_actions.clone(),
             memory_facts: self.memory_facts.clone(),
@@ -1478,28 +1386,6 @@ fn is_shell_prompt(trimmed: &str) -> bool {
     }
 
     false
-}
-
-fn is_error_line(line: &str) -> bool {
-    let lower = line.to_lowercase();
-    lower.starts_with("error")
-        || lower.contains("error:")
-        || lower.contains("error[")
-        || lower.contains(" failed")
-        || lower.contains("exception")
-        || lower.contains("traceback")
-        || lower.contains("panic!")
-        || lower.contains("fatal:")
-        || (lower.contains("command not found") && !lower.contains("if"))
-        || lower.contains("permission denied")
-        || lower.contains("no such file")
-        || lower.contains("segmentation fault")
-}
-
-fn error_signature(line: &str) -> String {
-    let lower = line.to_lowercase();
-    let sig: String = lower.chars().filter(|c| c.is_alphabetic() || c.is_whitespace()).collect();
-    sig.split_whitespace().take(8).collect::<Vec<_>>().join(" ")
 }
 
 fn percentile(samples: &VecDeque<f64>, pct: f64) -> Option<f64> {
@@ -1799,45 +1685,6 @@ pub fn create_session(
 
                                     let project_id: Option<String> = Some(node.working_dir.clone());
 
-                                    // Auto-resolution: if we had a pending error and this node succeeded (no error),
-                                    // record the input command as the resolution
-                                    if let (Some(ref pending_fp), Some(ref pending_proj)) = (&a.pending_error_fp, &a.pending_error_project) {
-                                        if !a.had_error_in_node {
-                                            if let Some(ref input) = node.input {
-                                                let resolution = input.trim().to_string();
-                                                if !resolution.is_empty() {
-                                                    if let Ok(Some(pattern)) = db.find_error_pattern(Some(pending_proj.as_str()), pending_fp) {
-                                                        db.set_error_resolution(pattern.id, &resolution).ok();
-                                                    }
-                                                }
-                                            }
-                                            a.pending_error_fp = None;
-                                            a.pending_error_project = None;
-                                        }
-                                    }
-
-                                    // Error fingerprinting — upsert and emit match
-                                    if a.had_error_in_node {
-                                        if let Some(ref fp) = a.last_error_fingerprint {
-                                            if let Ok(pattern) = db.upsert_error_pattern(project_id.as_deref(), fp, &node.output_summary.clone().unwrap_or_default()) {
-                                                // Track which sessions hit this error (F6)
-                                                db.upsert_error_session(pattern.id, &event_session_id).ok();
-                                                let evt = ErrorMatchEvent {
-                                                    fingerprint: pattern.fingerprint.clone(),
-                                                    occurrence_count: pattern.occurrence_count,
-                                                    resolution: pattern.resolution.clone(),
-                                                    raw_sample: pattern.raw_sample.clone(),
-                                                };
-                                                let _ = app_clone.emit(&format!("error-matched-{}", event_session_id), &evt);
-                                            }
-                                            // Track this error so next successful command can be recorded as resolution
-                                            a.pending_error_fp = Some(fp.clone());
-                                            a.pending_error_project = project_id.clone();
-                                        }
-                                    }
-                                    // Reset per-node error flag (it's set during process())
-                                    a.had_error_in_node = false;
-
                                     // Command sequence tracking — push FIRST then record
                                     if node.kind == "command" {
                                         if let Some(ref input) = node.input {
@@ -1943,7 +1790,7 @@ pub fn create_session(
                             }
                         }
 
-                        if chunk_count % 30 == 0 || a.stuck_score() > 0.5 {
+                        if chunk_count % 30 == 0 {
                             if let Ok(mut s) = session_clone.lock() {
                                 s.detected_agent = a.detected_agent.clone();
                                 s.metrics = a.to_metrics();
