@@ -15,6 +15,10 @@ export interface UpdateState {
   progress: number;
   /** User dismissed the dialog — hide until next launch */
   dismissed: boolean;
+  /** The version string the user dismissed (so a newer version re-shows the dialog) */
+  dismissedVersion: string;
+  /** Download failed — show error feedback */
+  error: boolean;
 }
 
 const INITIAL: UpdateState = {
@@ -24,6 +28,8 @@ const INITIAL: UpdateState = {
   downloading: false,
   progress: 0,
   dismissed: false,
+  dismissedVersion: "",
+  error: false,
 };
 
 const CHECK_DELAY_MS = 5_000;
@@ -43,6 +49,9 @@ export function useAutoUpdater() {
           available: true,
           version: update.version,
           notes: update.body ?? "",
+          error: false,
+          // If the user dismissed an older version, re-show for the new one
+          dismissed: s.dismissed && s.dismissedVersion === update.version,
         }));
       }
     } catch {
@@ -61,7 +70,7 @@ export function useAutoUpdater() {
   }, [doCheck]);
 
   const dismiss = useCallback(() => {
-    setState((s) => ({ ...s, dismissed: true }));
+    setState((s) => ({ ...s, dismissed: true, dismissedVersion: s.version }));
   }, []);
 
   const downloadAndInstall = useCallback(async () => {
@@ -93,7 +102,7 @@ export function useAutoUpdater() {
       // Update installed — relaunch the app
       await relaunch();
     } catch {
-      setState((s) => ({ ...s, downloading: false }));
+      setState((s) => ({ ...s, downloading: false, error: true }));
     }
   }, []);
 

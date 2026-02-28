@@ -321,7 +321,7 @@ function AppContent() {
 
       <StatusBar
         onOpenShortcuts={() => setShortcutsOpen(true)}
-        updateAvailable={updater.state.available && !updater.state.dismissed}
+        updateAvailable={updater.state.available}
         updateVersion={updater.state.version}
         updateDownloading={updater.state.downloading}
         updateProgress={updater.state.progress}

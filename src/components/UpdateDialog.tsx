@@ -40,6 +40,12 @@ export function UpdateDialog({ state, onDismiss, onDownload }: UpdateDialogProps
           </div>
         )}
 
+        {state.error && !state.downloading && (
+          <div className="update-dialog-error">
+            Download failed. Check your connection and try again.
+          </div>
+        )}
+
         <div className="update-dialog-actions">
           <button
             className="update-dialog-btn"
@@ -59,7 +65,7 @@ export function UpdateDialog({ state, onDismiss, onDownload }: UpdateDialogProps
             onClick={onDownload}
             disabled={state.downloading}
           >
-            {state.downloading ? "Restarting..." : "Update Now"}
+            {state.downloading ? "Restarting..." : state.error ? "Retry" : "Update Now"}
           </button>
         </div>
       </div>

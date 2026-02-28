@@ -89,6 +89,12 @@
   text-align: right;
 }
 
+.update-dialog-error {
+  font-size: var(--text-base);
+  color: #f87171;
+  margin-bottom: 12px;
+}
+
 .update-dialog-actions {
   display: flex;
   gap: var(--space-2);
