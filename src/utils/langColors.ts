@@ -30,6 +30,16 @@ export const LANG_COLORS: Record<string, string> = {
   "Objective-C": "#438eff",
   "Vue": "#41b883",
   "Svelte": "#ff3e00",
+  "F#": "#b845fc",
+  "Julia": "#a270ba",
+  "Perl": "#0298c3",
+  "Clojure": "#db5855",
+  "Erlang": "#b83998",
+  "OCaml": "#3be133",
+  "Nim": "#ffc200",
+  "Crystal": "#000100",
+  "Groovy": "#4298b8",
+  "Gleam": "#ffaff3",
 };
 
 // Build a case-insensitive lookup index (lazily built once)

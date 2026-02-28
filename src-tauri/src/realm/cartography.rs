@@ -35,17 +35,57 @@ pub fn surface_scan(path: &str) -> SurfaceScanResult {
 
     // Check marker files at root
     let markers: &[(&str, &str, Option<fn(&str) -> Vec<String>>)] = &[
+        // JavaScript / TypeScript
         ("package.json", "JavaScript/TypeScript", Some(detect_js_frameworks)),
+        ("deno.json", "TypeScript", None),
+        ("deno.jsonc", "TypeScript", None),
+        // Rust
         ("Cargo.toml", "Rust", Some(detect_rust_frameworks)),
-        ("go.mod", "Go", None),
-        ("pyproject.toml", "Python", None),
-        ("requirements.txt", "Python", None),
-        ("Gemfile", "Ruby", None),
-        ("pom.xml", "Java", None),
-        ("build.gradle", "Java/Kotlin", None),
-        ("composer.json", "PHP", None),
-        ("pubspec.yaml", "Dart", Some(|_| vec!["Flutter".to_string()])),
-        ("Package.swift", "Swift", None),
+        // Python
+        ("pyproject.toml", "Python", Some(detect_python_frameworks)),
+        ("requirements.txt", "Python", Some(detect_python_frameworks)),
+        ("setup.py", "Python", Some(detect_python_frameworks)),
+        ("Pipfile", "Python", Some(detect_python_frameworks)),
+        // Go
+        ("go.mod", "Go", Some(detect_go_frameworks)),
+        // Ruby
+        ("Gemfile", "Ruby", Some(detect_ruby_frameworks)),
+        // Java / JVM
+        ("pom.xml", "Java", Some(detect_java_frameworks)),
+        ("build.gradle", "Java/Kotlin", Some(detect_jvm_frameworks)),
+        ("build.gradle.kts", "Kotlin", Some(detect_jvm_frameworks)),
+        // PHP
+        ("composer.json", "PHP", Some(detect_php_frameworks)),
+        // Dart / Flutter
+        ("pubspec.yaml", "Dart", Some(detect_dart_frameworks)),
+        // Swift
+        ("Package.swift", "Swift", Some(detect_swift_frameworks)),
+        // C / C++
+        ("CMakeLists.txt", "C++", Some(detect_cpp_frameworks)),
+        ("meson.build", "C", None),
+        // Elixir
+        ("mix.exs", "Elixir", Some(detect_elixir_frameworks)),
+        // Scala
+        ("build.sbt", "Scala", Some(detect_scala_frameworks)),
+        // Haskell
+        ("stack.yaml", "Haskell", None),
+        ("cabal.project", "Haskell", None),
+        // Zig
+        ("build.zig", "Zig", None),
+        // Julia
+        ("Project.toml", "Julia", None),
+        // Clojure
+        ("project.clj", "Clojure", None),
+        ("deps.edn", "Clojure", None),
+        // Erlang
+        ("rebar.config", "Erlang", None),
+        // OCaml
+        ("dune-project", "OCaml", None),
+        // Perl
+        ("cpanfile", "Perl", None),
+        ("Makefile.PL", "Perl", None),
+        // Gleam
+        ("gleam.toml", "Gleam", None),
     ];
 
     for (file, language, detect_fn) in markers {
@@ -59,6 +99,29 @@ pub fn surface_scan(path: &str) -> SurfaceScanResult {
                     for fw in detect(&content) {
                         if !frameworks.contains(&fw) {
                             frameworks.push(fw);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // .NET / C# / F# — check for .sln, .csproj, .fsproj at root (names vary)
+    if let Ok(entries) = std::fs::read_dir(root) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            if name_str.ends_with(".sln") || name_str.ends_with(".csproj") || name_str.ends_with(".fsproj") {
+                let lang = if name_str.ends_with(".fsproj") { "F#" } else { "C#" };
+                if !languages.contains(&lang.to_string()) {
+                    languages.push(lang.to_string());
+                }
+                if name_str.ends_with(".csproj") || name_str.ends_with(".fsproj") {
+                    if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                        for fw in detect_csharp_frameworks(&content) {
+                            if !frameworks.contains(&fw) {
+                                frameworks.push(fw);
+                            }
                         }
                     }
                 }
@@ -91,7 +154,22 @@ pub fn surface_scan(path: &str) -> SurfaceScanResult {
         ("js", "JavaScript"), ("jsx", "JavaScript"),
         ("py", "Python"), ("rs", "Rust"), ("go", "Go"),
         ("rb", "Ruby"), ("java", "Java"), ("kt", "Kotlin"),
-        ("swift", "Swift"), ("cs", "C#"), ("cpp", "C++"), ("c", "C"),
+        ("swift", "Swift"), ("cs", "C#"), ("cpp", "C++"),
+        ("cc", "C++"), ("cxx", "C++"), ("c", "C"),
+        ("php", "PHP"), ("lua", "Lua"), ("dart", "Dart"),
+        ("ex", "Elixir"), ("exs", "Elixir"),
+        ("scala", "Scala"), ("hs", "Haskell"),
+        ("zig", "Zig"), ("jl", "Julia"),
+        ("pl", "Perl"), ("pm", "Perl"),
+        ("r", "R"), ("R", "R"),
+        ("m", "Objective-C"),
+        ("fs", "F#"), ("fsx", "F#"),
+        ("clj", "Clojure"), ("cljs", "Clojure"),
+        ("erl", "Erlang"), ("hrl", "Erlang"),
+        ("ml", "OCaml"), ("mli", "OCaml"),
+        ("nim", "Nim"), ("cr", "Crystal"),
+        ("groovy", "Groovy"), ("gleam", "Gleam"),
+        ("vue", "Vue"), ("svelte", "Svelte"),
     ];
 
     for (ext, lang) in ext_lang_map {
@@ -149,7 +227,22 @@ pub fn deep_scan(path: &str) -> ScanResult {
         ("js", "JavaScript"), ("jsx", "JavaScript"),
         ("py", "Python"), ("rs", "Rust"), ("go", "Go"),
         ("rb", "Ruby"), ("java", "Java"), ("kt", "Kotlin"),
-        ("swift", "Swift"), ("cs", "C#"), ("cpp", "C++"), ("c", "C"),
+        ("swift", "Swift"), ("cs", "C#"), ("cpp", "C++"),
+        ("cc", "C++"), ("cxx", "C++"), ("c", "C"),
+        ("php", "PHP"), ("lua", "Lua"), ("dart", "Dart"),
+        ("ex", "Elixir"), ("exs", "Elixir"),
+        ("scala", "Scala"), ("hs", "Haskell"),
+        ("zig", "Zig"), ("jl", "Julia"),
+        ("pl", "Perl"), ("pm", "Perl"),
+        ("r", "R"), ("R", "R"),
+        ("m", "Objective-C"),
+        ("fs", "F#"), ("fsx", "F#"),
+        ("clj", "Clojure"), ("cljs", "Clojure"),
+        ("erl", "Erlang"), ("hrl", "Erlang"),
+        ("ml", "OCaml"), ("mli", "OCaml"),
+        ("nim", "Nim"), ("cr", "Crystal"),
+        ("groovy", "Groovy"), ("gleam", "Gleam"),
+        ("vue", "Vue"), ("svelte", "Svelte"),
     ];
 
     for (ext, lang) in ext_lang_map {
@@ -199,7 +292,11 @@ pub fn full_scan(path: &str) -> ScanResult {
 
     // Sample source files for import patterns
     let mut import_counts: HashMap<String, usize> = HashMap::new();
-    let sample_exts = ["ts", "tsx", "js", "jsx", "rs", "py", "go"];
+    let sample_exts = [
+        "ts", "tsx", "js", "jsx", "rs", "py", "go",
+        "rb", "java", "kt", "php", "cs", "swift",
+        "ex", "exs", "scala", "clj", "lua",
+    ];
 
     let mut file_count = 0;
     for entry in WalkDir::new(root)
@@ -574,6 +671,19 @@ fn extract_conventions(root: &Path, conventions: &mut Vec<Convention>) {
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
+/// Simple substring-match helper: check if any (key, name) pair matches content.
+fn detect_by_substring(content: &str, checks: &[(&str, &str)]) -> Vec<String> {
+    let mut frameworks = Vec::new();
+    for (key, name) in checks {
+        if content.contains(key) {
+            frameworks.push(name.to_string());
+        }
+    }
+    frameworks
+}
+
+// ─── JavaScript / TypeScript (package.json) ──────────────────────────
+
 fn detect_js_frameworks(content: &str) -> Vec<String> {
     let mut frameworks = Vec::new();
     let checks = [
@@ -581,7 +691,11 @@ fn detect_js_frameworks(content: &str) -> Vec<String> {
         ("nuxt", "Nuxt"), ("svelte", "Svelte"), ("angular", "Angular"),
         ("express", "Express"), ("fastify", "Fastify"), ("nest", "NestJS"),
         ("remix", "Remix"), ("astro", "Astro"), ("tauri", "Tauri"),
-        ("electron", "Electron"),
+        ("electron", "Electron"), ("gatsby", "Gatsby"),
+        ("ember", "Ember"), ("hono", "Hono"),
+        ("koa", "Koa"), ("elysia", "Elysia"),
+        ("solid-js", "SolidJS"), ("qwik", "Qwik"),
+        ("three", "Three.js"), ("socket.io", "Socket.IO"),
     ];
     for (key, name) in checks {
         if content.contains(&format!("\"{}\"", key))
@@ -593,19 +707,166 @@ fn detect_js_frameworks(content: &str) -> Vec<String> {
     frameworks
 }
 
+// ─── Rust (Cargo.toml) ──────────────────────────────────────────────
+
 fn detect_rust_frameworks(content: &str) -> Vec<String> {
-    let mut frameworks = Vec::new();
-    let checks = [
+    detect_by_substring(content, &[
         ("actix-web", "Actix"), ("axum", "Axum"), ("rocket", "Rocket"),
         ("tauri", "Tauri"), ("tokio", "Tokio"), ("warp", "Warp"),
-    ];
-    for (key, name) in checks {
-        if content.contains(key) {
-            frameworks.push(name.to_string());
-        }
-    }
-    frameworks
+        ("hyper", "Hyper"), ("tonic", "Tonic"), ("diesel", "Diesel"),
+        ("sqlx", "SQLx"), ("sea-orm", "SeaORM"), ("leptos", "Leptos"),
+        ("yew", "Yew"), ("dioxus", "Dioxus"), ("bevy", "Bevy"),
+    ])
 }
+
+// ─── Python (pyproject.toml, requirements.txt, setup.py, Pipfile) ───
+
+fn detect_python_frameworks(content: &str) -> Vec<String> {
+    let lower = content.to_lowercase();
+    detect_by_substring(&lower, &[
+        ("django", "Django"), ("flask", "Flask"), ("fastapi", "FastAPI"),
+        ("starlette", "Starlette"), ("tornado", "Tornado"),
+        ("pyramid", "Pyramid"), ("sanic", "Sanic"),
+        ("aiohttp", "aiohttp"), ("bottle", "Bottle"),
+        ("streamlit", "Streamlit"), ("dash", "Dash"),
+        ("celery", "Celery"), ("sqlalchemy", "SQLAlchemy"),
+        ("scrapy", "Scrapy"), ("pytest", "pytest"),
+        ("tensorflow", "TensorFlow"), ("torch", "PyTorch"),
+        ("pandas", "pandas"), ("numpy", "NumPy"),
+        ("pydantic", "Pydantic"), ("uvicorn", "Uvicorn"),
+    ])
+}
+
+// ─── Go (go.mod) ────────────────────────────────────────────────────
+
+fn detect_go_frameworks(content: &str) -> Vec<String> {
+    detect_by_substring(content, &[
+        ("gin-gonic/gin", "Gin"), ("labstack/echo", "Echo"),
+        ("gofiber/fiber", "Fiber"), ("go-chi/chi", "Chi"),
+        ("gorilla/mux", "Gorilla"), ("beego/beego", "Beego"),
+        ("gohugoio/hugo", "Hugo"), ("bufbuild/buf", "Buf"),
+        ("grpc/grpc-go", "gRPC"), ("google.golang.org/grpc", "gRPC"),
+        ("gorm.io/gorm", "GORM"), ("ent/ent", "Ent"),
+        ("cobra", "Cobra"), ("urfave/cli", "urfave/cli"),
+    ])
+}
+
+// ─── Ruby (Gemfile) ─────────────────────────────────────────────────
+
+fn detect_ruby_frameworks(content: &str) -> Vec<String> {
+    detect_by_substring(content, &[
+        ("rails", "Rails"), ("sinatra", "Sinatra"),
+        ("hanami", "Hanami"), ("grape", "Grape"),
+        ("roda", "Roda"), ("jekyll", "Jekyll"),
+        ("rspec", "RSpec"), ("sidekiq", "Sidekiq"),
+    ])
+}
+
+// ─── Java (pom.xml) ─────────────────────────────────────────────────
+
+fn detect_java_frameworks(content: &str) -> Vec<String> {
+    detect_by_substring(content, &[
+        ("spring-boot", "Spring Boot"), ("spring-", "Spring"),
+        ("quarkus", "Quarkus"), ("micronaut", "Micronaut"),
+        ("hibernate", "Hibernate"), ("vertx", "Vert.x"),
+        ("junit", "JUnit"), ("maven-", "Maven"),
+        ("jakarta.", "Jakarta EE"), ("struts", "Struts"),
+    ])
+}
+
+// ─── JVM (build.gradle / build.gradle.kts) ──────────────────────────
+
+fn detect_jvm_frameworks(content: &str) -> Vec<String> {
+    detect_by_substring(content, &[
+        ("spring-boot", "Spring Boot"), ("org.springframework", "Spring"),
+        ("ktor", "Ktor"), ("quarkus", "Quarkus"),
+        ("micronaut", "Micronaut"), ("android", "Android"),
+        ("compose", "Jetpack Compose"), ("hibernate", "Hibernate"),
+        ("exposed", "Exposed"), ("junit", "JUnit"),
+    ])
+}
+
+// ─── PHP (composer.json) ────────────────────────────────────────────
+
+fn detect_php_frameworks(content: &str) -> Vec<String> {
+    detect_by_substring(content, &[
+        ("laravel/framework", "Laravel"), ("laravel/lumen", "Lumen"),
+        ("symfony/", "Symfony"), ("slim/slim", "Slim"),
+        ("cakephp/cakephp", "CakePHP"), ("yiisoft/", "Yii"),
+        ("codeigniter", "CodeIgniter"), ("wordpress", "WordPress"),
+        ("drupal/", "Drupal"), ("livewire", "Livewire"),
+        ("phpunit", "PHPUnit"), ("filament", "Filament"),
+    ])
+}
+
+// ─── Dart (pubspec.yaml) ────────────────────────────────────────────
+
+fn detect_dart_frameworks(content: &str) -> Vec<String> {
+    detect_by_substring(content, &[
+        ("flutter", "Flutter"), ("serverpod", "Serverpod"),
+        ("dart_frog", "Dart Frog"),
+    ])
+}
+
+// ─── Swift (Package.swift) ──────────────────────────────────────────
+
+fn detect_swift_frameworks(content: &str) -> Vec<String> {
+    detect_by_substring(content, &[
+        ("vapor", "Vapor"), ("Vapor", "Vapor"),
+        ("kitura", "Kitura"), ("Kitura", "Kitura"),
+        ("perfect", "Perfect"), ("Perfect", "Perfect"),
+        ("hummingbird", "Hummingbird"), ("Hummingbird", "Hummingbird"),
+    ])
+}
+
+// ─── C / C++ (CMakeLists.txt) ───────────────────────────────────────
+
+fn detect_cpp_frameworks(content: &str) -> Vec<String> {
+    detect_by_substring(content, &[
+        ("Qt", "Qt"), ("Boost", "Boost"), ("OpenCV", "OpenCV"),
+        ("gRPC", "gRPC"), ("grpc", "gRPC"),
+        ("SFML", "SFML"), ("SDL2", "SDL"), ("SDL", "SDL"),
+        ("wxWidgets", "wxWidgets"), ("imgui", "ImGui"),
+        ("Vulkan", "Vulkan"), ("OpenGL", "OpenGL"),
+        ("CUDA", "CUDA"), ("GTest", "GTest"),
+    ])
+}
+
+// ─── C# / .NET (.csproj) ───────────────────────────────────────────
+
+fn detect_csharp_frameworks(content: &str) -> Vec<String> {
+    detect_by_substring(content, &[
+        ("Microsoft.AspNetCore", "ASP.NET"), ("AspNetCore", "ASP.NET"),
+        ("Blazor", "Blazor"), ("Microsoft.Maui", "MAUI"),
+        ("Xamarin", "Xamarin"), ("EntityFramework", "Entity Framework"),
+        ("WPF", "WPF"), ("WindowsForms", "WinForms"),
+        ("Avalonia", "Avalonia"), ("Unity", "Unity"),
+        ("xunit", "xUnit"), ("NUnit", "NUnit"),
+    ])
+}
+
+// ─── Elixir (mix.exs) ──────────────────────────────────────────────
+
+fn detect_elixir_frameworks(content: &str) -> Vec<String> {
+    detect_by_substring(content, &[
+        (":phoenix", "Phoenix"), (":ecto", "Ecto"),
+        (":nerves", "Nerves"), (":absinthe", "Absinthe"),
+        (":live_view", "LiveView"), (":oban", "Oban"),
+    ])
+}
+
+// ─── Scala (build.sbt) ─────────────────────────────────────────────
+
+fn detect_scala_frameworks(content: &str) -> Vec<String> {
+    detect_by_substring(content, &[
+        ("play", "Play"), ("akka", "Akka"), ("pekko", "Pekko"),
+        ("spark", "Spark"), ("zio", "ZIO"),
+        ("http4s", "http4s"), ("cats", "Cats"),
+        ("scalafx", "ScalaFX"), ("scalatest", "ScalaTest"),
+    ])
+}
+
+// ─── Import Module Extraction ───────────────────────────────────────
 
 fn extract_import_module(line: &str) -> Option<String> {
     // JS/TS: import ... from "module"
@@ -628,6 +889,13 @@ fn extract_import_module(line: &str) -> Option<String> {
         let module = rest.split("::").next().unwrap_or(rest);
         if module != "std" && module != "core" && module != "alloc" && module != "self" && module != "super" && module != "crate" {
             return Some(module.to_string());
+        }
+    }
+    // Python: import module / from module import ...
+    if line.starts_with("import ") && !line.contains("from") {
+        let rest = line[7..].trim().split(|c: char| c == ',' || c == ' ' || c == '.').next()?;
+        if !rest.is_empty() {
+            return Some(rest.to_string());
         }
     }
     None

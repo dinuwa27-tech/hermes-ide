@@ -4,6 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { Project } from "../hooks/useSessionProjects";
 import { CreateSessionOpts } from "../state/SessionContext";
 import { getProjects, createProject, deleteProject } from "../api/projects";
+import { LANG_COLORS } from "../utils/langColors";
 
 const AI_PROVIDERS = [
   { id: "claude", label: "Claude", description: "Claude Code CLI", enabled: true },
@@ -178,6 +179,25 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
                   <div className="project-picker-info">
                     <div className="project-picker-name">{project.name}</div>
                     <div className="project-picker-path">{shortPath(project.path)}</div>
+                    {(project.languages.length > 0 || project.frameworks.length > 0) && (
+                      <div className="project-picker-tags">
+                        {project.languages.map((lang) => (
+                          <span
+                            key={lang}
+                            className="workspace-lang-tag"
+                            style={{
+                              color: LANG_COLORS[lang] || "#7b93db",
+                              borderColor: (LANG_COLORS[lang] || "#7b93db") + "66",
+                            }}
+                          >
+                            {lang}
+                          </span>
+                        ))}
+                        {project.frameworks.map((fw) => (
+                          <span key={fw} className="workspace-fw-tag">{fw}</span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <button
                     className="session-creator-remove-btn"
