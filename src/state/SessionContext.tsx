@@ -10,6 +10,7 @@ import { createTerminal, destroy as destroyTerminal, writeScrollback } from "../
 import { applyTheme } from "../utils/themeManager";
 import { restoreWindowState } from "../utils/windowState";
 import { initNotifications, notifyLongRunningDone } from "../utils/notifications";
+import { initAnalytics, trackAppStarted, trackSessionCreated } from "../utils/analytics";
 import {
   LayoutNode, PaneLeaf,
   nextPaneId, nextSplitId,
@@ -579,6 +580,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       .then((s) => {
         applyTheme(s.theme || "dark", s);
         restoreWindowState(s).catch(console.error);
+        initAnalytics().then(() => trackAppStarted());
         if (s.execution_mode === "assisted" || s.execution_mode === "autonomous") {
           dispatch({ type: "SET_DEFAULT_MODE", mode: s.execution_mode as ExecutionMode });
         }
@@ -639,6 +641,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
       dispatch({ type: "SESSION_UPDATED", session });
       dispatch({ type: "SET_ACTIVE", id: session.id });
+      trackSessionCreated({
+        execution_mode: defaultModeRef.current,
+        has_ai_provider: !!opts?.aiProvider,
+      });
       return session;
     } catch (err) {
       console.error("Failed to create session:", err);
@@ -656,6 +662,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       closingSessionIds.current.delete(id);
     }
   }, []);
+
+  const defaultModeRef = useRef(state.defaultMode);
+  defaultModeRef.current = state.defaultMode;
 
   const skipCloseConfirmRef = useRef(state.skipCloseConfirm);
   skipCloseConfirmRef.current = state.skipCloseConfirm;

@@ -49,6 +49,8 @@ export function CommandPalette({
     { id: "settings-appearance", label: "Settings / Appearance", category: "Settings", hidden: true, action: () => { onOpenSettings("appearance"); onClose(); } },
     { id: "settings-theme", label: "Settings / Theme", category: "Settings", hidden: true, action: () => { onOpenSettings("appearance"); onClose(); } },
     { id: "settings-autonomous", label: "Settings / Autonomous", category: "Settings", hidden: true, action: () => { onOpenSettings("autonomous"); onClose(); } },
+    { id: "settings-git", label: "Settings / Git", category: "Settings", hidden: true, action: () => { onOpenSettings("git"); onClose(); } },
+    { id: "settings-privacy", label: "Settings / Privacy", category: "Settings", hidden: true, action: () => { onOpenSettings("privacy"); onClose(); } },
     { id: "settings-shortcuts", label: "Settings / Shortcuts", category: "Settings", hidden: true, action: () => { onOpenSettings("shortcuts"); onClose(); } },
     { id: "workspace", label: "Projects", category: "App", action: () => { onOpenWorkspace(); onClose(); } },
     ...(onOpenCostDashboard ? [{ id: "cost-dashboard", label: "Cost Dashboard", category: "App", shortcut: fmt("{mod}$"), action: () => { onOpenCostDashboard(); onClose(); } }] : []),

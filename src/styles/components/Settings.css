@@ -93,6 +93,12 @@
   letter-spacing: 0.3px;
 }
 
+.settings-label-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .settings-input, .settings-select {
   background: var(--bg-2);
   border: 1px solid var(--border);

@@ -10,6 +10,7 @@ import {
   getSettings, setSetting, exportSettings, importSettings,
   type SettingsMap,
 } from "../api/settings";
+import { setAnalyticsEnabled } from "../utils/analytics";
 import { SHORTCUT_GROUPS } from "./ShortcutsPanel";
 
 interface SettingsProps {
@@ -150,6 +151,7 @@ export function Settings({ onClose, initialTab }: SettingsProps) {
     { id: "appearance", label: "Appearance" },
     { id: "git", label: "Git" },
     { id: "autonomous", label: "Autonomous" },
+    { id: "privacy", label: "Privacy" },
     { id: "shortcuts", label: "Shortcuts" },
   ];
 
@@ -409,6 +411,29 @@ export function Settings({ onClose, initialTab }: SettingsProps) {
                     />
                     Show untracked files
                   </label>
+                </div>
+              </div>
+            )}
+
+            {activeTab === "privacy" && (
+              <div className="settings-section">
+                <div className="settings-group">
+                  <label className="settings-label settings-label-row">
+                    <input
+                      type="checkbox"
+                      checked={settings.telemetry_enabled !== "false"}
+                      onChange={(e) => {
+                        const enabled = e.target.checked;
+                        updateSetting("telemetry_enabled", enabled ? "true" : "false");
+                        setAnalyticsEnabled(enabled);
+                      }}
+                    />
+                    Send anonymous usage analytics
+                  </label>
+                  <p className="settings-hint">
+                    Help improve Hermes IDE by sending anonymous usage data.
+                    No personal information, terminal content, or file paths are collected.
+                  </p>
                 </div>
               </div>
             )}
