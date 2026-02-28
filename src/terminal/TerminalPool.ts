@@ -162,7 +162,7 @@ const THEMES: Record<string, Record<string, string>> = {
     brightCyan: "#44e8ff", brightWhite: "#d0f0ff",
   },
   rainbow: {
-    background: "#08080e",
+    background: "#0a0612",
     foreground: "#c0bcd0",
     selectionBackground: "#d6a0ff33",
     selectionForeground: "#ffffff",
