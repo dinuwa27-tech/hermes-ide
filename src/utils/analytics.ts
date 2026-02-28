@@ -9,7 +9,7 @@ async function ensureInit(): Promise<void> {
   if (_initialized) return;
   try {
     const version = await getVersion();
-    init("A-EU-1922161061", { appVersion: version });
+    init("A-EU-1922161061", { appVersion: version, isDebug: import.meta.env.DEV });
     _initialized = true;
   } catch { /* silent */ }
 }
