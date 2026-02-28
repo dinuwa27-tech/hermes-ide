@@ -11,6 +11,8 @@
   font-size: var(--text-base);
   color: var(--text-3);
   flex-shrink: 0;
+  position: relative;
+  z-index: 100;
 }
 
 .status-bar-left, .status-bar-right {
