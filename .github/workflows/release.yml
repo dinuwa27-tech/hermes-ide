@@ -243,23 +243,27 @@ jobs:
           UPDATER_DIR="updater-artifacts"
           mkdir -p "$UPDATER_DIR"
 
-          # macOS updater bundle
+          # macOS updater bundle (Tauri 2: .app.tar.gz + .sig)
           if ls "$TARGET_DIR"/macos/*.tar.gz 2>/dev/null; then
             cp "$TARGET_DIR"/macos/*.tar.gz "$UPDATER_DIR/"
             cp "$TARGET_DIR"/macos/*.tar.gz.sig "$UPDATER_DIR/" 2>/dev/null || true
           fi
 
-          # Linux updater bundle
-          if ls "$TARGET_DIR"/appimage/*.AppImage.tar.gz 2>/dev/null; then
-            cp "$TARGET_DIR"/appimage/*.AppImage.tar.gz "$UPDATER_DIR/"
-            cp "$TARGET_DIR"/appimage/*.AppImage.tar.gz.sig "$UPDATER_DIR/" 2>/dev/null || true
-          fi
+          # Linux updater bundle (Tauri 2: .AppImage + .AppImage.sig)
+          for f in "$TARGET_DIR"/appimage/*.AppImage; do
+            if [ -f "$f" ]; then
+              cp "$f" "$UPDATER_DIR/"
+              cp "${f}.sig" "$UPDATER_DIR/" 2>/dev/null || true
+            fi
+          done
 
-          # Windows updater bundle
-          if ls "$TARGET_DIR"/nsis/*.nsis.zip 2>/dev/null; then
-            cp "$TARGET_DIR"/nsis/*.nsis.zip "$UPDATER_DIR/"
-            cp "$TARGET_DIR"/nsis/*.nsis.zip.sig "$UPDATER_DIR/" 2>/dev/null || true
-          fi
+          # Windows updater bundle (Tauri 2: .exe + .exe.sig from nsis)
+          for f in "$TARGET_DIR"/nsis/*-setup.exe; do
+            if [ -f "$f" ]; then
+              cp "$f" "$UPDATER_DIR/"
+              cp "${f}.sig" "$UPDATER_DIR/" 2>/dev/null || true
+            fi
+          done
 
       - name: Upload updater artifacts
         uses: actions/upload-artifact@v4
@@ -353,8 +357,8 @@ jobs:
 
           add_platform "darwin-aarch64" "darwin-aarch64-*.tar.gz"
           add_platform "darwin-x86_64"  "darwin-x86_64-*.tar.gz"
-          add_platform "linux-x86_64"   "linux-x86_64-*.AppImage.tar.gz"
-          add_platform "windows-x86_64" "windows-x86_64-*.nsis.zip"
+          add_platform "linux-x86_64"   "linux-x86_64-*.AppImage"
+          add_platform "windows-x86_64" "windows-x86_64-*-setup.exe"
 
           jq -n \
             --arg version "$VERSION" \
