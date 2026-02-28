@@ -192,7 +192,9 @@ const THEME_COLORS: Record<string, string> = {
 function ThemePicker() {
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState("tron");
-  const ref = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
 
   // Load current theme on mount
   useEffect(() => {
@@ -203,11 +205,21 @@ function ThemePicker() {
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (btnRef.current?.contains(t) || popRef.current?.contains(t)) return;
+      setOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
+
+  const toggle = () => {
+    if (!open && btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      setPos({ x: r.right, y: r.top });
+    }
+    setOpen((o) => !o);
+  };
 
   const select = async (id: string) => {
     setCurrent(id);
@@ -218,10 +230,11 @@ function ThemePicker() {
   };
 
   return (
-    <div className="status-theme-picker" ref={ref}>
+    <>
       <button
+        ref={btnRef}
         className="status-theme-btn"
-        onClick={() => setOpen((o) => !o)}
+        onClick={toggle}
         title="Switch theme"
       >
         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -229,8 +242,12 @@ function ThemePicker() {
           <path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" />
         </svg>
       </button>
-      {open && (
-        <div className="status-theme-popover">
+      {open && pos && (
+        <div
+          ref={popRef}
+          className="status-theme-popover"
+          style={{ right: `${window.innerWidth - pos.x}px`, bottom: `${window.innerHeight - pos.y + 4}px` }}
+        >
           {THEME_OPTIONS.map((t) => (
             <button
               key={t.id}
@@ -246,6 +263,6 @@ function ThemePicker() {
           ))}
         </div>
       )}
-    </div>
+    </>
   );
 }
