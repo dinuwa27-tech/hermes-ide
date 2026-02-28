@@ -65,7 +65,7 @@ jobs:
         working-directory: src-tauri
         run: cargo test
 
-  # ── Build (4-target matrix) ─────────────────────────────────────────
+  # ── Build (6-target matrix) ─────────────────────────────────────────
   build:
     needs: [test-frontend, test-rust]
     strategy:
@@ -87,9 +87,19 @@ jobs:
             platform_key: linux-x86_64
             sign: false
             notarize: false
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-22.04
+            platform_key: linux-aarch64
+            sign: false
+            notarize: false
           - target: x86_64-pc-windows-msvc
             runner: windows-latest
             platform_key: windows-x86_64
+            sign: false
+            notarize: false
+          - target: aarch64-pc-windows-msvc
+            runner: windows-latest
+            platform_key: windows-aarch64
             sign: false
             notarize: false
     runs-on: ${{ matrix.runner }}
@@ -109,8 +119,8 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
+      - name: Install Linux dependencies (x86_64)
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -121,6 +131,42 @@ jobs:
             libgtk-3-dev \
             libsoup-3.0-dev \
             libjavascriptcoregtk-4.1-dev
+
+      - name: Install Linux dependencies (aarch64 cross-compilation)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo dpkg --add-architecture arm64
+
+          # Pin existing sources to amd64 only
+          sudo sed -i 's/^deb http/deb [arch=amd64] http/g' /etc/apt/sources.list
+
+          # Add arm64 sources from Ubuntu ports
+          sudo tee /etc/apt/sources.list.d/arm64-cross.list << 'EOF'
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-security main restricted universe multiverse
+          EOF
+
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu \
+            libwebkit2gtk-4.1-dev:arm64 \
+            libappindicator3-dev:arm64 \
+            librsvg2-dev:arm64 \
+            patchelf \
+            libgtk-3-dev:arm64 \
+            libsoup-3.0-dev:arm64 \
+            libjavascriptcoregtk-4.1-dev:arm64
+
+      - name: Set up aarch64 Linux cross-compilation environment
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          echo "PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_ALLOW_CROSS=1" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+          echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+          echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++" >> "$GITHUB_ENV"
 
       - run: npm ci
 
@@ -322,6 +368,42 @@ jobs:
           echo "=== Release files ==="
           ls -la "$RELEASE_DIR/"
 
+      - name: Generate downloads manifest (downloads.json)
+        run: |
+          RELEASE_DIR="release-files"
+
+          # Build JSON by scanning actual files
+          PLATFORMS_JSON='{}'
+
+          add_download() {
+            local platform="$1" arch="$2" format="$3" filename="$4"
+            PLATFORMS_JSON=$(echo "$PLATFORMS_JSON" | jq \
+              --arg p "$platform" --arg a "$arch" --arg f "$format" --arg n "$filename" \
+              '.[$p][$a][$f] = $n')
+          }
+
+          # macOS DMGs
+          for f in "$RELEASE_DIR"/*_aarch64.dmg; do [ -f "$f" ] && add_download "macos" "aarch64" "dmg" "$(basename "$f")"; done
+          for f in "$RELEASE_DIR"/*_x86_64.dmg; do [ -f "$f" ] && add_download "macos" "x86_64" "dmg" "$(basename "$f")"; done
+
+          # Linux
+          for f in "$RELEASE_DIR"/*_amd64.AppImage; do [ -f "$f" ] && add_download "linux" "x86_64" "appimage" "$(basename "$f")"; done
+          for f in "$RELEASE_DIR"/*_amd64.deb; do [ -f "$f" ] && add_download "linux" "x86_64" "deb" "$(basename "$f")"; done
+          for f in "$RELEASE_DIR"/*_arm64.AppImage; do [ -f "$f" ] && add_download "linux" "aarch64" "appimage" "$(basename "$f")"; done
+
+          # Windows
+          for f in "$RELEASE_DIR"/*_x64-setup.exe; do [ -f "$f" ] && add_download "windows" "x86_64" "exe" "$(basename "$f")"; done
+          for f in "$RELEASE_DIR"/*_arm64-setup.exe; do [ -f "$f" ] && add_download "windows" "aarch64" "exe" "$(basename "$f")"; done
+
+          jq -n \
+            --arg version "$VERSION" \
+            --argjson platforms "$PLATFORMS_JSON" \
+            '{version: $version, platforms: $platforms}' \
+            > "$RELEASE_DIR/downloads.json"
+
+          echo "=== downloads.json ==="
+          cat "$RELEASE_DIR/downloads.json"
+
       - name: Generate update manifest (latest.json)
         run: |
           RELEASE_DIR="release-files"
@@ -355,10 +437,12 @@ jobs:
             fi
           }
 
-          add_platform "darwin-aarch64" "darwin-aarch64-*.tar.gz"
-          add_platform "darwin-x86_64"  "darwin-x86_64-*.tar.gz"
-          add_platform "linux-x86_64"   "linux-x86_64-*.AppImage"
-          add_platform "windows-x86_64" "windows-x86_64-*-setup.exe"
+          add_platform "darwin-aarch64"  "darwin-aarch64-*.tar.gz"
+          add_platform "darwin-x86_64"   "darwin-x86_64-*.tar.gz"
+          add_platform "linux-x86_64"    "linux-x86_64-*.AppImage"
+          add_platform "linux-aarch64"   "linux-aarch64-*.AppImage"
+          add_platform "windows-x86_64"  "windows-x86_64-*-setup.exe"
+          add_platform "windows-aarch64" "windows-aarch64-*-setup.exe"
 
           jq -n \
             --arg version "$VERSION" \
