@@ -75,6 +75,7 @@ export function PromptComposer({ sessionId, onClose }: PromptComposerProps) {
   const [userTemplates, setUserTemplates] = useState<PromptTemplate[]>([]);
   const [customRoles, setCustomRoles] = useState<RoleDefinition[]>([]);
   const [customStyles, setCustomStyles] = useState<StyleDefinition[]>([]);
+  const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
   const [saveTemplateName, setSaveTemplateName] = useState("");
   const [showSaveInput, setShowSaveInput] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -132,6 +133,17 @@ export function PromptComposer({ sessionId, onClose }: PromptComposerProps) {
         }
       })
       .catch((err) => console.warn("[PromptComposer] Failed to load custom styles:", err));
+  }, []);
+
+  // Load pinned templates on mount
+  useEffect(() => {
+    getSetting("pinned_templates")
+      .then((val) => {
+        if (typeof val === "string" && val) {
+          try { setPinnedIds(new Set(JSON.parse(val))); } catch { /* ignore malformed JSON */ }
+        }
+      })
+      .catch((err) => console.warn("[PromptComposer] Failed to load pinned templates:", err));
   }, []);
 
   // Focus task field on mount
@@ -239,6 +251,16 @@ export function PromptComposer({ sessionId, onClose }: PromptComposerProps) {
     setSetting("prompt_templates", JSON.stringify(updated)).catch(console.error);
   }, [userTemplates]);
 
+  const togglePin = useCallback((id: string) => {
+    setPinnedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      setSetting("pinned_templates", JSON.stringify([...next])).catch(console.error);
+      return next;
+    });
+  }, []);
+
   const createCustomRole = useCallback((role: Omit<RoleDefinition, "id" | "builtIn">) => {
     const newRole: RoleDefinition = {
       ...role,
@@ -331,6 +353,8 @@ export function PromptComposer({ sessionId, onClose }: PromptComposerProps) {
               onDeleteUser={deleteTemplate}
               open={templatePickerOpen}
               onToggle={toggleTemplatePicker}
+              pinnedIds={pinnedIds}
+              onTogglePin={togglePin}
             />
           </div>
           <button className="prompt-composer-close" onClick={onClose} title="Close (Esc)">&#10005;</button>

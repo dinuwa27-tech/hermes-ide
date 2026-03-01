@@ -10,6 +10,8 @@ interface TemplatePickerProps {
   onDeleteUser: (id: string) => void;
   open: boolean;
   onToggle: () => void;
+  pinnedIds: Set<string>;
+  onTogglePin: (id: string) => void;
 }
 
 export function TemplatePicker({
@@ -19,6 +21,8 @@ export function TemplatePicker({
   onDeleteUser,
   open,
   onToggle,
+  pinnedIds,
+  onTogglePin,
 }: TemplatePickerProps) {
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
@@ -101,36 +105,53 @@ export function TemplatePicker({
     [hoveredId, allTemplates],
   );
 
+  // Collect pinned templates (preserving pin order)
+  const pinnedTemplates = useMemo(() => {
+    if (pinnedIds.size === 0) return [];
+    const map = new Map(allTemplates.map((t) => [t.id, t]));
+    return [...pinnedIds].map((id) => map.get(id)).filter(Boolean) as PromptTemplate[];
+  }, [pinnedIds, allTemplates]);
+
   const handleSelect = useCallback((tpl: PromptTemplate) => {
     onSelect(tpl);
     onToggle();
   }, [onSelect, onToggle]);
 
-  const renderItem = (tpl: PromptTemplate, showCategory?: boolean) => (
-    <div
-      key={tpl.id}
-      className={`template-picker-item ${!tpl.builtIn ? "template-picker-item-user" : ""}`}
-      onClick={() => handleSelect(tpl)}
-      onMouseEnter={() => setHoveredId(tpl.id)}
-      onMouseLeave={() => setHoveredId(null)}
-    >
-      <span className="template-picker-item-name">{tpl.name}</span>
-      {showCategory && (
-        <span className="template-picker-item-cat">
-          {TEMPLATE_CATEGORIES[tpl.category]?.label}
-        </span>
-      )}
-      {!tpl.builtIn && (
+  const renderItem = (tpl: PromptTemplate, showCategory?: boolean) => {
+    const isPinned = pinnedIds.has(tpl.id);
+    return (
+      <div
+        key={tpl.id}
+        className={`template-picker-item ${!tpl.builtIn ? "template-picker-item-user" : ""}`}
+        onClick={() => handleSelect(tpl)}
+        onMouseEnter={() => setHoveredId(tpl.id)}
+        onMouseLeave={() => setHoveredId(null)}
+      >
+        <span className="template-picker-item-name">{tpl.name}</span>
+        {showCategory && (
+          <span className="template-picker-item-cat">
+            {TEMPLATE_CATEGORIES[tpl.category]?.label}
+          </span>
+        )}
         <button
-          className="template-picker-item-delete"
-          onClick={(e) => { e.stopPropagation(); onDeleteUser(tpl.id); }}
-          title="Delete template"
+          className={`template-picker-item-pin${isPinned ? " pinned" : ""}`}
+          onClick={(e) => { e.stopPropagation(); onTogglePin(tpl.id); }}
+          title={isPinned ? "Unpin template" : "Pin template"}
         >
-          x
+          📌
         </button>
-      )}
-    </div>
-  );
+        {!tpl.builtIn && (
+          <button
+            className="template-picker-item-delete"
+            onClick={(e) => { e.stopPropagation(); onDeleteUser(tpl.id); }}
+            title="Delete template"
+          >
+            x
+          </button>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="template-picker-wrapper">
@@ -188,6 +209,14 @@ export function TemplatePicker({
             ) : (
               /* Grouped category mode (no search) */
               <>
+                {pinnedTemplates.length > 0 && (
+                  <>
+                    <div className="template-picker-section-label template-picker-section-pinned">📌 Pinned</div>
+                    <div className="template-picker-items">
+                      {pinnedTemplates.map((tpl) => renderItem(tpl))}
+                    </div>
+                  </>
+                )}
                 {Array.from(grouped.entries()).map(([cat, items]) => {
                   const meta = TEMPLATE_CATEGORIES[cat];
                   const collapsed = collapsedCategories.has(cat);
