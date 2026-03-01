@@ -57,11 +57,24 @@ const SCALE_FACTORS: Record<string, number> = {
   "x-large": 1.5,
 };
 
-export function applyUiScale(scaleId: string): void {
+// Theme-specific overrides for tokens that differ from BASE_TOKENS.
+// Inline styles beat CSS selectors, so we must honour theme values here.
+const THEME_TOKEN_OVERRIDES: Record<string, Partial<Record<string, number>>> = {
+  "80s": {
+    "--radius": 0,
+    "--radius-sm": 0,
+    "--radius-lg": 1,
+    "--radius-pill": 1,
+  },
+};
+
+export function applyUiScale(scaleId: string, themeId?: string): void {
   const factor = SCALE_FACTORS[scaleId] ?? 1.0;
+  const overrides = themeId ? THEME_TOKEN_OVERRIDES[themeId] : undefined;
   const root = document.documentElement;
   for (const [prop, base] of Object.entries(BASE_TOKENS)) {
-    root.style.setProperty(prop, `${Math.round(base * factor)}px`);
+    const value = overrides?.[prop] ?? base;
+    root.style.setProperty(prop, `${Math.round(value * factor)}px`);
   }
 }
 
@@ -72,8 +85,8 @@ export function applyTheme(themeId: string, allSettings: Record<string, string>)
   } else {
     document.documentElement.dataset.theme = themeId;
   }
-  // Apply UI scale
-  applyUiScale(allSettings.ui_scale || "default");
+  // Apply UI scale (pass themeId so theme-specific token overrides are honoured)
+  applyUiScale(allSettings.ui_scale || "default", themeId);
   // Sync terminal colors
   updateSettings({ ...allSettings, theme: themeId });
 }

@@ -311,7 +311,7 @@ lazy_static! {
     ).unwrap();
     // Model line: "Main model: claude-3.5-sonnet with diff edit format" or "Model: gpt-4o with diff edit format"
     static ref AIDER_MODEL_RE: Regex = Regex::new(
-        r"^(?:Main model|Model|Editor model|Weak model):\s*(.+?)(?:\s+with\s+\S+\s+edit\s+format)?"
+        r"^(?:Main model|Model|Editor model|Weak model):\s*(.+?)(?:\s+with\s+\S+\s+edit\s+format)?$"
     ).unwrap();
     // Applied edit: "Applied edit to src/main.py"
     static ref AIDER_EDIT_RE: Regex = Regex::new(
@@ -341,7 +341,7 @@ lazy_static! {
     ).unwrap();
     // File patterns: "• Edited example.txt (+1 -1)" or "• Added new.txt (+2 -0)" or "• Deleted tmp.txt (+0 -3)"
     static ref CODEX_FILE_OP_RE: Regex = Regex::new(
-        r"^[•◦]\s*(Edited|Added|Deleted)\s+(.+?)(?:\s+\(\+\d+\s+-\d+\))?"
+        r"^[•◦]\s*(Edited|Added|Deleted)\s+(.+?)(?:\s+\(\+\d+\s+-\d+\))?\s*$"
     ).unwrap();
     // Exploring: "• Exploring" or "• Explored"
     static ref CODEX_EXPLORE_RE: Regex = Regex::new(
@@ -742,10 +742,10 @@ impl ProviderAdapter for AiderAdapter {
             });
         }
 
-        // Added/removed file from chat
+        // Added/removed file from chat (use byte offsets to avoid case-sensitivity issues)
         let lower = line.to_lowercase();
         if lower.starts_with("added ") && lower.contains(" to the chat") {
-            let file = line.trim_start_matches("Added ").split(" to the chat").next().unwrap_or("").trim();
+            let file = line["added ".len()..].split(" to the chat").next().unwrap_or("").trim();
             if !file.is_empty() {
                 result.tool_call = Some(ToolCall {
                     tool: "Add File".into(),
@@ -754,7 +754,7 @@ impl ProviderAdapter for AiderAdapter {
                 });
             }
         } else if lower.starts_with("removed ") && lower.contains(" from the chat") {
-            let file = line.trim_start_matches("Removed ").split(" from the chat").next().unwrap_or("").trim();
+            let file = line["removed ".len()..].split(" from the chat").next().unwrap_or("").trim();
             if !file.is_empty() {
                 result.tool_call = Some(ToolCall {
                     tool: "Drop File".into(),
@@ -1182,9 +1182,9 @@ impl ProviderAdapter for GeminiAdapter {
 
     fn is_prompt(&self, line: &str) -> bool {
         let t = line.trim();
-        // Gemini CLI prompts: single char ">", "!", "*" followed by space
-        // Normal: "> ", Shell: "! ", YOLO: "* "
-        if t.len() <= 3 && (t == ">" || t == "! " || t == "* " || t == "> ") {
+        // Gemini CLI prompts: single char ">", "!", "*" with or without trailing space
+        // Normal: ">" / "> ", Shell: "!" / "! ", YOLO: "*" / "* "
+        if t.len() <= 3 && (t == ">" || t == "!" || t == "*" || t == "> " || t == "! " || t == "* ") {
             return true;
         }
         is_shell_prompt(t)
@@ -1770,6 +1770,10 @@ fn parse_token_count(s: &str) -> u64 {
         (num.parse::<f64>().unwrap_or(0.0) * 1000.0) as u64
     } else if let Some(num) = clean.strip_suffix('M').or_else(|| clean.strip_suffix('m')) {
         (num.parse::<f64>().unwrap_or(0.0) * 1_000_000.0) as u64
+    } else if let Some(num) = clean.strip_suffix('B').or_else(|| clean.strip_suffix('b')) {
+        (num.parse::<f64>().unwrap_or(0.0) * 1_000_000_000.0) as u64
+    } else if let Some(num) = clean.strip_suffix('T').or_else(|| clean.strip_suffix('t')) {
+        (num.parse::<f64>().unwrap_or(0.0) * 1_000_000_000_000.0) as u64
     } else {
         clean.parse().unwrap_or(0)
     }
@@ -1797,9 +1801,10 @@ fn extract_model_name(line: &str) -> Option<String> {
     if lower.contains("gpt-5") { return Some("gpt-5".into()); }
     if lower.contains("gpt-4o") { return Some("gpt-4o".into()); }
     if lower.contains("gpt-4") { return Some("gpt-4".into()); }
-    if lower.contains("o1") && !lower.contains("v0.1") && !lower.contains("v0.0") { return Some("o1".into()); }
-    if lower.contains("o3") { return Some("o3".into()); }
-    if lower.contains("o4") { return Some("o4".into()); }
+    if (lower.contains(" o1") || lower.contains("-o1") || lower.starts_with("o1"))
+        && !lower.contains("v0.1") && !lower.contains("v0.0") { return Some("o1".into()); }
+    if lower.contains(" o3") || lower.contains("-o3") || lower.starts_with("o3") { return Some("o3".into()); }
+    if lower.contains(" o4") || lower.contains("-o4") || lower.starts_with("o4") { return Some("o4".into()); }
     // Google models
     if lower.contains("gemini-3") && lower.contains("pro") { return Some("gemini-3-pro".into()); }
     if lower.contains("gemini-3") && lower.contains("flash") { return Some("gemini-3-flash".into()); }
@@ -2382,7 +2387,8 @@ pub fn create_session(
                         // Emit immediately when an agent is first detected,
                         // even if no phase change occurred (e.g. session was
                         // already Idle when the CLI startup + prompt arrived
-                        // in the same chunk).
+                        // in the same chunk). Also emit when a model name is
+                        // enriched (detected after the initial agent detection).
                         if a.detected_agent.is_some() {
                             if let Ok(mut s) = session_clone.lock() {
                                 if s.detected_agent.is_none() {
@@ -2391,6 +2397,14 @@ pub fn create_session(
                                     s.last_activity_at = now();
                                     let update = SessionUpdate::from(&*s);
                                     let _ = app_clone.emit("session-updated", &update);
+                                } else if let (Some(ref sa), Some(ref aa)) = (&s.detected_agent, &a.detected_agent) {
+                                    // Model enrichment: agent detected but model was unknown, now resolved
+                                    if sa.model.is_none() && aa.model.is_some() {
+                                        s.detected_agent = a.detected_agent.clone();
+                                        s.metrics = a.to_metrics();
+                                        let update = SessionUpdate::from(&*s);
+                                        let _ = app_clone.emit("session-updated", &update);
+                                    }
                                 }
                             }
                         }
