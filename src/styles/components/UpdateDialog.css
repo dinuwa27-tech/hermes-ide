@@ -89,6 +89,12 @@
   text-align: right;
 }
 
+.update-dialog-ready {
+  font-size: var(--text-base);
+  color: var(--green);
+  margin-bottom: 12px;
+}
+
 .update-dialog-error {
   font-size: var(--text-base);
   color: #f87171;

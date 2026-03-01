@@ -46,6 +46,7 @@ const INITIAL: UpdateState = {
   notes: "",
   downloading: false,
   progress: 0,
+  ready: false,
   dismissed: false,
   dismissedVersion: "",
   error: false,

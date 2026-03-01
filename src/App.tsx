@@ -425,7 +425,8 @@ function AppContent() {
       <UpdateDialog
         state={updater.state}
         onDismiss={updater.dismiss}
-        onDownload={updater.downloadAndInstall}
+        onDownload={updater.download}
+        onInstall={updater.installAndRelaunch}
       />
 
       {state.pendingCloseSessionId && (

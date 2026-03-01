@@ -13,6 +13,8 @@ export interface UpdateState {
   downloading: boolean;
   /** Download progress 0-100 */
   progress: number;
+  /** Download finished, ready to install */
+  ready: boolean;
   /** User dismissed the dialog — hide until next launch */
   dismissed: boolean;
   /** The version string the user dismissed (so a newer version re-shows the dialog) */
@@ -27,6 +29,7 @@ const INITIAL: UpdateState = {
   notes: "",
   downloading: false,
   progress: 0,
+  ready: false,
   dismissed: false,
   dismissedVersion: "",
   error: false,
@@ -73,17 +76,17 @@ export function useAutoUpdater() {
     setState((s) => ({ ...s, dismissed: true, dismissedVersion: s.version }));
   }, []);
 
-  const downloadAndInstall = useCallback(async () => {
+  const download = useCallback(async () => {
     const update = updateRef.current;
     if (!update) return;
 
-    setState((s) => ({ ...s, downloading: true, progress: 0 }));
+    setState((s) => ({ ...s, downloading: true, progress: 0, error: false }));
 
     try {
       let contentLength = 0;
       let downloaded = 0;
 
-      await update.downloadAndInstall((event) => {
+      await update.download((event) => {
         switch (event.event) {
           case "Started":
             contentLength = event.data.contentLength ?? 0;
@@ -95,14 +98,24 @@ export function useAutoUpdater() {
             break;
           }
           case "Finished":
-            setState((s) => ({ ...s, downloading: false, progress: 100 }));
             break;
         }
       });
-      // Update installed — relaunch the app
-      await relaunch();
+      // Download complete — wait for user to press "Install & Relaunch"
+      setState((s) => ({ ...s, downloading: false, progress: 100, ready: true }));
     } catch {
       setState((s) => ({ ...s, downloading: false, error: true }));
+    }
+  }, []);
+
+  const installAndRelaunch = useCallback(async () => {
+    const update = updateRef.current;
+    if (!update) return;
+    try {
+      await update.install();
+      await relaunch();
+    } catch {
+      setState((s) => ({ ...s, error: true, ready: false }));
     }
   }, []);
 
@@ -113,5 +126,5 @@ export function useAutoUpdater() {
     return updateRef.current !== null;
   }, [doCheck]);
 
-  return { state, dismiss, downloadAndInstall, manualCheck };
+  return { state, dismiss, download, installAndRelaunch, manualCheck };
 }

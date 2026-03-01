@@ -6,16 +6,19 @@ interface UpdateDialogProps {
   state: UpdateState;
   onDismiss: () => void;
   onDownload: () => void;
+  onInstall: () => void;
 }
 
-export function UpdateDialog({ state, onDismiss, onDownload }: UpdateDialogProps) {
+export function UpdateDialog({ state, onDismiss, onDownload, onInstall }: UpdateDialogProps) {
   if (!state.available || state.dismissed) return null;
 
   return (
-    <div className="update-dialog-backdrop" onClick={onDismiss}>
+    <div className="update-dialog-backdrop" onClick={state.downloading ? undefined : onDismiss}>
       <div className="update-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="update-dialog-header">
-          <span className="update-dialog-title">Update Available</span>
+          <span className="update-dialog-title">
+            {state.ready ? "Ready to Install" : "Update Available"}
+          </span>
           <span className="update-dialog-tag">v{state.version}</span>
         </div>
         <div className="update-dialog-subtitle">
@@ -35,14 +38,20 @@ export function UpdateDialog({ state, onDismiss, onDownload }: UpdateDialogProps
               />
             </div>
             <div className="update-dialog-progress-label">
-              Downloading &amp; installing... {state.progress}%
+              Downloading... {state.progress}%
             </div>
+          </div>
+        )}
+
+        {state.ready && !state.error && (
+          <div className="update-dialog-ready">
+            Download complete. Click below to install and restart.
           </div>
         )}
 
         {state.error && !state.downloading && (
           <div className="update-dialog-error">
-            Download failed. Check your connection and try again.
+            {state.ready ? "Install failed. Try again." : "Download failed. Check your connection and try again."}
           </div>
         )}
 
@@ -60,13 +69,22 @@ export function UpdateDialog({ state, onDismiss, onDownload }: UpdateDialogProps
             </button>
           )}
 
-          <button
-            className="update-dialog-btn update-dialog-btn-primary"
-            onClick={onDownload}
-            disabled={state.downloading}
-          >
-            {state.downloading ? "Restarting..." : state.error ? "Retry" : "Update Now"}
-          </button>
+          {state.ready ? (
+            <button
+              className="update-dialog-btn update-dialog-btn-primary"
+              onClick={onInstall}
+            >
+              Install &amp; Relaunch
+            </button>
+          ) : (
+            <button
+              className="update-dialog-btn update-dialog-btn-primary"
+              onClick={onDownload}
+              disabled={state.downloading}
+            >
+              {state.downloading ? "Downloading..." : state.error ? "Retry" : "Update Now"}
+            </button>
+          )}
         </div>
       </div>
     </div>
