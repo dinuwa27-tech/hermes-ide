@@ -161,6 +161,13 @@ export const BUILT_IN_ROLES: RoleDefinition[] = [
     systemInstruction: "You are a data analyst with expertise in defining metrics, analyzing user behavior, and driving data-informed product decisions.",
     builtIn: true,
   },
+  {
+    id: "legal-advisor",
+    label: "Legal Advisor",
+    description: "Privacy policies, contracts, compliance, licensing",
+    systemInstruction: "You are a legal advisor with expertise in technology law, privacy regulations, contract drafting, software licensing, and regulatory compliance.",
+    builtIn: true,
+  },
 ];
 
 /**

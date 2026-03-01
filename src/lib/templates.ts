@@ -17,7 +17,8 @@ export type TemplateCategory =
   | "ai-ml"
   | "incident"
   | "business"
-  | "monetization";
+  | "monetization"
+  | "legal";
 
 export interface PromptTemplate {
   id: string;
@@ -48,6 +49,7 @@ export const TEMPLATE_CATEGORIES: Record<TemplateCategory, { label: string; icon
   incident:      { label: "Incident Response", icon: ";" },
   business:      { label: "Business & Growth", icon: "'" },
   monetization:  { label: "Monetization",     icon: "¢" },
+  legal:         { label: "Legal & Compliance", icon: "§" },
 };
 
 export const BUILT_IN_TEMPLATES: PromptTemplate[] = [
@@ -1359,6 +1361,112 @@ export const BUILT_IN_TEMPLATES: PromptTemplate[] = [
     fields: {
       constraints: "Identify expansion levers: seat-based growth, tier upgrades, add-on modules, usage overage, and professional services. For each lever: define the trigger event, target segment, messaging, and expected revenue impact. Calculate net revenue retention (NRR) target. Design the in-product upgrade prompts and sales-assist handoff points.",
       style: "Present a menu of expansion plays ranked by revenue impact and implementation effort. Include specific trigger conditions and messaging for each play.",
+    },
+  },
+
+  // ── Legal & Compliance (8) ──
+  {
+    id: "legal-privacy-policy",
+    name: "Privacy Policy Generator",
+    description: "Draft a comprehensive privacy policy for an app, SaaS product, or website.",
+    category: "legal",
+    recommendedRoles: ["legal-advisor", "technical-writer"],
+    recommendedStyles: [{ id: "detailed", level: 4 }, { id: "formal", level: 4 }],
+    builtIn: true,
+    fields: {
+      constraints: "Cover all required sections: data collected (personal, usage, cookies), legal basis for processing, third-party sharing, user rights (access, deletion, portability), retention periods, children's data, international transfers, and contact info. Comply with GDPR, CCPA, and other applicable regulations. Use plain language where possible.",
+      style: "Structure with clear section headings. Use plain-language summaries followed by legal detail. Include a table of contents.",
+    },
+  },
+  {
+    id: "legal-terms-of-service",
+    name: "Terms of Service",
+    description: "Draft terms of service / terms of use for a digital product.",
+    category: "legal",
+    recommendedRoles: ["legal-advisor", "technical-writer"],
+    recommendedStyles: [{ id: "detailed", level: 4 }, { id: "formal", level: 4 }],
+    builtIn: true,
+    fields: {
+      constraints: "Cover: acceptance of terms, account registration, acceptable use policy, intellectual property, user-generated content, payment/billing terms (if applicable), limitation of liability, warranty disclaimers, termination, dispute resolution, governing law, and modification of terms. Balance legal protection with user readability.",
+      style: "Use numbered sections with descriptive headings. Plain-language summary at the top. Bold key obligations and restrictions.",
+    },
+  },
+  {
+    id: "legal-document-review",
+    name: "Legal Document Review",
+    description: "Review a legal document for risks, ambiguities, and missing clauses.",
+    category: "legal",
+    recommendedRoles: ["legal-advisor", "security-auditor"],
+    recommendedStyles: [{ id: "step-by-step", level: 3 }, { id: "actionable", level: 4 }],
+    builtIn: true,
+    fields: {
+      constraints: "Identify: risky clauses, ambiguous language, missing protections, unfavorable terms, compliance gaps, and enforceability concerns. Rate each finding by severity (critical, major, minor). Suggest specific rewording for problematic clauses.",
+      style: "Present findings in a severity-ranked table with: clause reference, issue description, risk level, and recommended fix. End with a summary of overall risk posture.",
+    },
+  },
+  {
+    id: "legal-contract-analysis",
+    name: "Contract Clause Analysis",
+    description: "Analyze specific contract clauses for fairness, enforceability, and hidden risks.",
+    category: "legal",
+    recommendedRoles: ["legal-advisor"],
+    recommendedStyles: [{ id: "detailed", level: 3 }, { id: "balanced", level: 4 }],
+    builtIn: true,
+    fields: {
+      constraints: "For each clause: explain what it means in plain language, identify who it favors, flag enforceability risks by jurisdiction, compare to market-standard language, and suggest alternative wording if unfavorable. Consider interaction effects between clauses.",
+      style: "Analyze clause-by-clause. For each: plain-language meaning, risk assessment, market comparison, and recommended revision. Use a fairness rating scale.",
+    },
+  },
+  {
+    id: "legal-gdpr-audit",
+    name: "GDPR / Data Protection Audit",
+    description: "Audit a product or codebase for GDPR, CCPA, and data protection compliance.",
+    category: "legal",
+    recommendedRoles: ["legal-advisor", "security-auditor"],
+    recommendedStyles: [{ id: "step-by-step", level: 4 }, { id: "actionable", level: 4 }],
+    builtIn: true,
+    fields: {
+      constraints: "Check: lawful basis for processing, consent mechanisms, data minimization, right to erasure implementation, data portability, breach notification procedures, DPA/sub-processor agreements, cross-border transfer safeguards, cookie consent, and record of processing activities. Reference specific GDPR articles and CCPA sections.",
+      style: "Use a compliance checklist format with pass/fail/partial status for each requirement. Include specific code or process changes needed for each gap.",
+    },
+  },
+  {
+    id: "legal-software-license",
+    name: "Software License Advisor",
+    description: "Choose, compare, or review open-source and proprietary software licenses.",
+    category: "legal",
+    recommendedRoles: ["legal-advisor", "architect"],
+    recommendedStyles: [{ id: "balanced", level: 4 }, { id: "visual", level: 3 }],
+    builtIn: true,
+    fields: {
+      constraints: "Compare licenses on: permissions (commercial use, modification, distribution), conditions (disclosure, same license, state changes), limitations (liability, warranty), patent grants, and compatibility with other licenses. Consider the project's use case: library, SaaS, desktop app, or internal tool.",
+      style: "Present a comparison table of candidate licenses. For each: key permissions, restrictions, and compatibility notes. End with a clear recommendation based on the project context.",
+    },
+  },
+  {
+    id: "legal-eula",
+    name: "EULA Generator",
+    description: "Draft an End User License Agreement for a desktop, mobile, or SaaS application.",
+    category: "legal",
+    recommendedRoles: ["legal-advisor", "technical-writer"],
+    recommendedStyles: [{ id: "detailed", level: 4 }, { id: "formal", level: 3 }],
+    builtIn: true,
+    fields: {
+      constraints: "Cover: license grant and scope, restrictions (reverse engineering, redistribution, sublicensing), intellectual property ownership, automatic updates, data collection, warranty disclaimer, limitation of liability, termination conditions, and governing law. Distinguish between subscription-based and perpetual license models if relevant.",
+      style: "Use numbered sections. Start each section with a one-sentence plain-language summary. Keep legal language precise but avoid unnecessary jargon.",
+    },
+  },
+  {
+    id: "legal-cookie-consent",
+    name: "Cookie & Consent Policy",
+    description: "Draft a cookie policy and design a consent mechanism compliant with ePrivacy and GDPR.",
+    category: "legal",
+    recommendedRoles: ["legal-advisor", "frontend-eng"],
+    recommendedStyles: [{ id: "actionable", level: 4 }, { id: "step-by-step", level: 3 }],
+    builtIn: true,
+    fields: {
+      constraints: "Cover: types of cookies used (strictly necessary, functional, analytics, advertising), purpose of each cookie, duration and expiry, third-party cookies, consent collection mechanism (banner design, granular opt-in), consent storage and proof, withdrawal of consent, and cookie-less alternatives. Comply with ePrivacy Directive, GDPR, and CCPA cookie requirements.",
+      style: "Split into two parts: (1) the cookie policy document text, and (2) the technical implementation guide for the consent banner. Include a cookie inventory table.",
     },
   },
 ];
