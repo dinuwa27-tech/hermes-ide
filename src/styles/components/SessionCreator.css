@@ -211,3 +211,39 @@
 }
 
 .session-creator-btn-secondary:hover { background: var(--bg-hover); }
+
+/* ─── Keyboard highlight for project list ────────────────── */
+
+.project-picker-item.session-creator-highlighted {
+  background: var(--bg-hover);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.project-picker-item.project-picker-item-attached.session-creator-highlighted {
+  background: var(--accent-dim);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* ─── Keyboard hint bar ─────────────────────────────────── */
+
+.session-creator-hints {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  padding-top: 4px;
+}
+
+.session-creator-hints kbd {
+  font-size: var(--text-xs);
+  padding: 0 4px;
+  vertical-align: 1px;
+}
+
+.session-creator-hints span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}

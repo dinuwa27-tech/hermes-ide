@@ -8,6 +8,7 @@ import { trackFeatureUsed } from "../utils/analytics";
 interface MenuEventHandlers {
   dispatch: (action: any) => void;
   createSession: () => void;
+  createSessionDirect: () => void;
   requestCloseSession: (id: string) => void;
   activeSessionId: string | null;
   focusedPaneId: string | null;
@@ -25,6 +26,7 @@ export function useNativeMenuEvents(handlers: MenuEventHandlers): void {
   const {
     dispatch,
     createSession,
+    createSessionDirect,
     activeSessionId,
     focusedPaneId,
     setSettingsOpen,
@@ -62,6 +64,9 @@ export function useNativeMenuEvents(handlers: MenuEventHandlers): void {
         // ── File menu ──
         case "file.new-session":
           createSession();
+          break;
+        case "file.new-session-tab":
+          createSessionDirect();
           break;
         case "file.close-pane":
           if (focusedPaneId) {
@@ -164,6 +169,7 @@ export function useNativeMenuEvents(handlers: MenuEventHandlers): void {
     [
       dispatch,
       createSession,
+      createSessionDirect,
       activeSessionId,
       focusedPaneId,
       setSettingsOpen,

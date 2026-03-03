@@ -29,7 +29,12 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
   const [scanPath, setScanPath] = useState("");
   const [scanning, setScanning] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const [highlightedProviderIndex, setHighlightedProviderIndex] = useState(0);
   const searchRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const step2Ref = useRef<HTMLDivElement>(null);
+  const labelRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     getProjects()
@@ -39,7 +44,26 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
 
   useEffect(() => {
     if (step === 1) searchRef.current?.focus();
+    if (step === 2) {
+      step2Ref.current?.focus();
+      // Reset to current selection or 0
+      const allItems = [...AI_PROVIDERS.filter((p) => p.enabled), { id: null }] as const;
+      const currentIdx = allItems.findIndex((p) => p.id === aiProvider);
+      setHighlightedProviderIndex(currentIdx >= 0 ? currentIdx : allItems.length - 1);
+    }
+    if (step === 3) labelRef.current?.focus();
   }, [step]);
+
+  useEffect(() => {
+    setHighlightedIndex(-1);
+  }, [query]);
+
+  useEffect(() => {
+    if (highlightedIndex >= 0 && listRef.current) {
+      const items = listRef.current.querySelectorAll(".project-picker-item");
+      items[highlightedIndex]?.scrollIntoView({ block: "nearest" });
+    }
+  }, [highlightedIndex]);
 
   const filtered = useMemo(() => {
     if (!query) return allProjects;
@@ -120,8 +144,50 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
     }
   };
 
+  const enabledProviders = useMemo(
+    () => [...AI_PROVIDERS.filter((p) => p.enabled).map((p) => p.id), null] as const,
+    []
+  );
+
+  const selectProviderAndAdvance = (idx: number) => {
+    const id = enabledProviders[idx] ?? null;
+    setAiProvider(id as string | null);
+    setStep(3);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") onClose();
+    if (e.key === "Escape") { onClose(); return; }
+
+    if (step === 1) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setHighlightedIndex((prev) => Math.min(prev + 1, filtered.length - 1));
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setHighlightedIndex((prev) => {
+          const next = prev - 1;
+          if (next < 0) { searchRef.current?.focus(); return -1; }
+          return next;
+        });
+      } else if (e.key === " " && highlightedIndex >= 0) {
+        e.preventDefault();
+        toggleProject(filtered[highlightedIndex].id);
+      } else if (e.key === "Enter" && highlightedIndex >= 0) {
+        e.preventDefault();
+        setStep(2);
+      }
+    } else if (step === 2) {
+      if (e.key === "ArrowDown" || e.key === "ArrowRight") {
+        e.preventDefault();
+        setHighlightedProviderIndex((prev) => (prev + 1) % enabledProviders.length);
+      } else if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
+        e.preventDefault();
+        setHighlightedProviderIndex((prev) => (prev - 1 + enabledProviders.length) % enabledProviders.length);
+      } else if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        selectProviderAndAdvance(highlightedProviderIndex);
+      }
+    }
   };
 
   return (
@@ -155,8 +221,12 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
               placeholder="Filter projects..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
             />
-            <div className="session-creator-list">
+            <div className="session-creator-list" ref={listRef}>
               {filtered.length === 0 && !query && (
                 <div className="workspace-empty">
                   No projects found. Scan a directory below to add one.
@@ -167,10 +237,10 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
                   No projects matching &ldquo;{query}&rdquo;
                 </div>
               )}
-              {filtered.map((project) => (
+              {filtered.map((project, idx) => (
                 <div
                   key={project.id}
-                  className={`project-picker-item ${selectedProjectIds.includes(project.id) ? "project-picker-item-attached" : ""}`}
+                  className={`project-picker-item ${selectedProjectIds.includes(project.id) ? "project-picker-item-attached" : ""} ${highlightedIndex === idx ? "session-creator-highlighted" : ""}`}
                   onClick={() => toggleProject(project.id)}
                 >
                   <span className="project-picker-check">
@@ -218,6 +288,10 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") scanNewPath(scanPath);
                 }}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
               />
               <button
                 className="workspace-scan-btn"
@@ -234,6 +308,12 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
                 Scan
               </button>
             </div>
+            <div className="session-creator-hints">
+              <span><kbd>↑↓</kbd> navigate</span>
+              <span><kbd>Space</kbd> toggle</span>
+              <span><kbd>Enter</kbd> next</span>
+              <span><kbd>Esc</kbd> close</span>
+            </div>
             <div className="session-creator-actions">
               <button className="session-creator-btn-secondary" onClick={() => { setSelectedProjectIds([]); setStep(2); }}>
                 Skip
@@ -247,29 +327,37 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
 
         {/* Step 2: Pick AI Engine */}
         {step === 2 && (
-          <div className="session-creator-body">
+          <div className="session-creator-body" ref={step2Ref} tabIndex={-1} style={{ outline: "none" }}>
             <div className="session-creator-section-title">AI Engine</div>
             <div className="session-creator-provider-grid">
-              {AI_PROVIDERS.map((p) => (
-                <button
-                  key={p.id}
-                  className={`session-creator-provider-card ${aiProvider === p.id ? "selected" : ""} ${!p.enabled ? "disabled" : ""}`}
-                  onClick={() => p.enabled && setAiProvider(p.id)}
-                  disabled={!p.enabled}
-                >
-                  <span className="session-creator-provider-name">{p.label}</span>
-                  <span className="session-creator-provider-desc">
-                    {p.enabled ? p.description : "Coming soon"}
-                  </span>
-                </button>
-              ))}
+              {AI_PROVIDERS.map((p) => {
+                const providerIdx = enabledProviders.indexOf(p.id);
+                return (
+                  <button
+                    key={p.id}
+                    className={`session-creator-provider-card ${aiProvider === p.id ? "selected" : ""} ${!p.enabled ? "disabled" : ""} ${p.enabled && highlightedProviderIndex === providerIdx ? "selected" : ""}`}
+                    onClick={() => p.enabled && setAiProvider(p.id)}
+                    disabled={!p.enabled}
+                  >
+                    <span className="session-creator-provider-name">{p.label}</span>
+                    <span className="session-creator-provider-desc">
+                      {p.enabled ? p.description : "Coming soon"}
+                    </span>
+                  </button>
+                );
+              })}
               <button
-                className={`session-creator-provider-card ${aiProvider === null ? "selected" : ""}`}
+                className={`session-creator-provider-card ${aiProvider === null ? "selected" : ""} ${highlightedProviderIndex === enabledProviders.length - 1 ? "selected" : ""}`}
                 onClick={() => setAiProvider(null)}
               >
                 <span className="session-creator-provider-name">Shell Only</span>
                 <span className="session-creator-provider-desc">No AI agent</span>
               </button>
+            </div>
+            <div className="session-creator-hints">
+              <span><kbd>↑↓</kbd><kbd>←→</kbd> navigate</span>
+              <span><kbd>Enter</kbd> select</span>
+              <span><kbd>Esc</kbd> close</span>
             </div>
             <div className="session-creator-actions">
               <button className="session-creator-btn-secondary" onClick={() => setStep(1)}>
@@ -301,6 +389,7 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
               </div>
             </div>
             <input
+              ref={labelRef}
               className="command-palette-input"
               placeholder="Session label (optional)"
               value={label}
@@ -308,7 +397,15 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !creating) handleConfirm();
               }}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
             />
+            <div className="session-creator-hints">
+              <span><kbd>Enter</kbd> create</span>
+              <span><kbd>Esc</kbd> close</span>
+            </div>
             <div className="session-creator-actions">
               <button className="session-creator-btn-secondary" onClick={() => setStep(2)}>
                 Back

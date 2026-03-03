@@ -91,6 +91,9 @@ pub fn build_app_menu(app: &AppHandle) -> Result<Menu<Wry>, Box<dyn std::error::
     let new_session = MenuItemBuilder::with_id("file.new-session", "New Session")
         .accelerator("CmdOrCtrl+N")
         .build(app)?;
+    let new_tab = MenuItemBuilder::with_id("file.new-session-tab", "New Tab")
+        .accelerator("CmdOrCtrl+T")
+        .build(app)?;
     let close_pane = MenuItemBuilder::with_id("file.close-pane", "Close Pane")
         .accelerator("CmdOrCtrl+W")
         .build(app)?;
@@ -100,6 +103,7 @@ pub fn build_app_menu(app: &AppHandle) -> Result<Menu<Wry>, Box<dyn std::error::
 
     let file_menu = SubmenuBuilder::new(app, "File")
         .item(&new_session)
+        .item(&new_tab)
         .item(&close_pane)
         .separator()
         .item(&open_file_explorer)
@@ -148,7 +152,7 @@ pub fn build_app_menu(app: &AppHandle) -> Result<Menu<Wry>, Box<dyn std::error::
         .accelerator("CmdOrCtrl+E")
         .build(app)?;
     let timeline = CheckMenuItemBuilder::with_id("view.timeline", "Execution Timeline")
-        .accelerator("CmdOrCtrl+T")
+        .accelerator("CmdOrCtrl+Shift+T")
         .build(app)?;
     let cost_dashboard = MenuItemBuilder::with_id("view.cost-dashboard", "Cost Dashboard")
         .accelerator("CmdOrCtrl+$")

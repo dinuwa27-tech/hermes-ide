@@ -172,10 +172,23 @@ function AppContent() {
     return () => document.removeEventListener("contextmenu", suppress, true);
   }, []);
 
+  // ── Instant session creation (Cmd+N / Cmd+T) ──
+  const createSessionDirect = useCallback(async () => {
+    const session = await createSession({});
+    if (session) {
+      if (!state.layout.root) {
+        dispatch({ type: "INIT_PANE", sessionId: session.id });
+      } else if (state.layout.focusedPaneId) {
+        dispatch({ type: "SET_PANE_SESSION", paneId: state.layout.focusedPaneId, sessionId: session.id });
+      }
+    }
+  }, [createSession, state.layout.root, state.layout.focusedPaneId, dispatch]);
+
   // ── Native menu bar event bridge ──
   useNativeMenuEvents({
     dispatch,
     createSession: () => setSessionCreatorOpen(true),
+    createSessionDirect,
     requestCloseSession,
     activeSessionId: state.activeSessionId,
     focusedPaneId: state.layout.focusedPaneId,

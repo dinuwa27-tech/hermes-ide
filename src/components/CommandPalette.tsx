@@ -101,6 +101,10 @@ export function CommandPalette({
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
           onContextMenu={textContextMenu}
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
         />
         <div className="command-palette-results">
           {filtered.map((cmd, i) => (
