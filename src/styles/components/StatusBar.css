@@ -131,6 +131,27 @@
   background: var(--bg-hover);
 }
 
+/* ─── Bug Report Button ─────────────────────── */
+
+.status-bug-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  line-height: 1;
+  opacity: 0.6;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+  display: inline-flex;
+  align-items: center;
+}
+.status-bug-btn:hover {
+  opacity: 1;
+  color: var(--yellow);
+  background: var(--bg-hover);
+}
+
 /* ─── Theme Picker ──────────────────────────── */
 
 .status-theme-btn {

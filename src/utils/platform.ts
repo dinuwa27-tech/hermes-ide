@@ -18,6 +18,21 @@ export const isMac = PLATFORM === "mac";
 export const isWin = PLATFORM === "win";
 export const isLinux = PLATFORM === "linux";
 
+/** Human-readable OS version extracted from the user agent string. */
+export const OS_VERSION: string = (() => {
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent ?? "" : "";
+  // macOS: "Mac OS X 10_15_7" → "macOS 10.15.7"
+  const macMatch = ua.match(/Mac OS X ([\d_]+)/);
+  if (macMatch) return "macOS " + macMatch[1].replace(/_/g, ".");
+  // Windows: "Windows NT 10.0" → "Windows 10.0"
+  const winMatch = ua.match(/Windows NT ([\d.]+)/);
+  if (winMatch) return "Windows NT " + winMatch[1];
+  // Linux: "Linux x86_64" or just "Linux"
+  const linuxMatch = ua.match(/Linux ([\w_]+)/);
+  if (linuxMatch) return "Linux " + linuxMatch[1];
+  return "";
+})();
+
 /**
  * Returns true when the platform's "action" modifier is held.
  * - macOS: metaKey (⌘)

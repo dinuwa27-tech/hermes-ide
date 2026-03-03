@@ -1,7 +1,9 @@
 import "../styles/components/StatusBar.css";
 import { useState, useEffect, useCallback, useRef } from "react";
+import { open } from "@tauri-apps/plugin-shell";
 import { setSetting, getSetting, getSettings } from "../api/settings";
 import { useActiveSession, useSessionList, useTotalCost, useTotalTokens, useExecutionMode, useSession, ExecutionMode } from "../state/SessionContext";
+import { PLATFORM, OS_VERSION } from "../utils/platform";
 import { useContextMenu, menuItem } from "../hooks/useContextMenu";
 import { fmt } from "../utils/platform";
 import { THEME_OPTIONS, applyTheme } from "../utils/themeManager";
@@ -162,6 +164,28 @@ export function StatusBar({ onOpenShortcuts, updateAvailable, updateVersion, upd
           v{__APP_VERSION__}
         </span>
         <ThemePicker />
+        <button
+          className="status-bug-btn"
+          onClick={() => {
+            const os = PLATFORM === "mac" ? "macOS" : PLATFORM === "win" ? "Windows" : "Linux";
+            const params = new URLSearchParams({
+              template: "bug_report.yml",
+              version: __APP_VERSION__,
+              os,
+              "os-version": OS_VERSION,
+            });
+            open(`https://github.com/Vinci-26/hermes-ide-releases/issues/new?${params}`);
+          }}
+          title="Report a Bug"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M8 2l1.88 1.88" /><path d="M14.12 3.88L16 2" />
+            <path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1" />
+            <path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6" />
+            <path d="M12 20v-9" /><path d="M6.53 9C4.6 8.8 3 7.1 3 5" /><path d="M6 13H2" /><path d="M3 21c0-2.1 1.7-3.9 3.8-4" />
+            <path d="M20.97 5c0 2.1-1.6 3.8-3.5 4" /><path d="M22 13h-4" /><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4" />
+          </svg>
+        </button>
         {onOpenShortcuts && (
           <button
             className="status-shortcuts-btn"

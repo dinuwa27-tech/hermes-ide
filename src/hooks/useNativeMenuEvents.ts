@@ -2,6 +2,7 @@ import { useEffect, useCallback } from "react";
 import { open } from "@tauri-apps/plugin-shell";
 import { ensureListener, registerMenuBarHandler } from "./nativeMenuBridge";
 import { trackFeatureUsed } from "../utils/analytics";
+import { PLATFORM, OS_VERSION } from "../utils/platform";
 
 // ─── Menu Bar Action → React Dispatch Bridge ────────────────────────
 
@@ -155,9 +156,17 @@ export function useNativeMenuEvents(handlers: MenuEventHandlers): void {
         case "help.legal":
           open("https://hermes-ide.com/legal");
           break;
-        case "help.report-bug":
-          open("https://forms.gle/6KKQkqBYq8GE1Kh96");
+        case "help.report-bug": {
+          const os = PLATFORM === "mac" ? "macOS" : PLATFORM === "win" ? "Windows" : "Linux";
+          const params = new URLSearchParams({
+            template: "bug_report.yml",
+            version: __APP_VERSION__,
+            os,
+            "os-version": OS_VERSION,
+          });
+          open(`https://github.com/Vinci-26/hermes-ide-releases/issues/new?${params}`);
           break;
+        }
         case "help.shortcuts":
           dispatch({ type: "CLOSE_PALETTE" });
           setShortcutsOpen(true);
