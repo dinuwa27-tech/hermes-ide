@@ -39,19 +39,14 @@ const KEYDOWN_PASSTHROUGH = new Set([
   "CapsLock", "NumLock",
 ]);
 
-describe("Bug 2 fix: KEYDOWN_PASSTHROUGH allowlist", () => {
-  it("source uses KEYDOWN_PASSTHROUGH set (not key-length check)", () => {
-    expect(SRC).toContain("KEYDOWN_PASSTHROUGH");
-    expect(SRC).toContain("!KEYDOWN_PASSTHROUGH.has(event.key)");
-    // The shouldSuppress variable must NOT use key-length as the primary check
-    const suppressBlock = SRC.match(/const shouldSuppress\s*=[\s\S]*?;/);
-    expect(suppressBlock).not.toBeNull();
-    expect(suppressBlock![0]).not.toContain("event.key.length");
-    expect(suppressBlock![0]).toContain("KEYDOWN_PASSTHROUGH");
+describe("Bug 2 fix: keypress blocking after compositionend", () => {
+  it("source uses recentCompositionEnd flag for keypress blocking", () => {
+    expect(SRC).toContain("recentCompositionEnd");
+    expect(SRC).toContain('event.type === "keypress" && recentCompositionEnd');
   });
 
-  it("KEYDOWN_PASSTHROUGH is defined as a Set in the source", () => {
-    expect(SRC).toMatch(/const KEYDOWN_PASSTHROUGH = new Set\(/);
+  it("customKeyEventHandler returns true by default (lets xterm handle natively)", () => {
+    expect(SRC).toContain("return true");
   });
 
   it("all navigation keys are in the passthrough set", () => {

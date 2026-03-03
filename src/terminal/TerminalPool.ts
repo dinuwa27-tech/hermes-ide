@@ -49,12 +49,6 @@ interface PoolEntry {
   historyProvider: HistoryProvider;
   sessionPhase: string;
   cwd: string;
-  // Dedup: rolling window of recently-sent printable chars (prevents WKWebView
-  // composition flush from re-sending the entire textarea content)
-  sentChars: string;
-  // Mirrors xterm's hidden textarea accumulation. Unlike sentChars, NEVER
-  // cleared on Enter/Ctrl-C/phase changes (textarea persists across those).
-  textareaAccum: string;
 }
 
 type SuggestionCallback = (state: SuggestionState | null) => void;
@@ -67,11 +61,6 @@ const suggestionSubscribers = new Map<string, Set<SuggestionCallback>>();
 const creating = new Set<string>();
 
 const SUGGESTION_DEBOUNCE_MS = 50;
-
-// Dedup: maximum size for the per-session sent-chars buffer. Characters older
-// than this window are dropped.  The buffer is also cleared on Enter/Ctrl-C.
-const SENT_CHARS_MAX = 512;
-const TEXTAREA_ACCUM_MAX = 2048;
 
 // ─── Themes & Fonts ──────────────────────────────────────────────────
 
@@ -258,18 +247,7 @@ export function updateSettings(settings: Record<string, string>): void {
 }
 
 // ─── Keydown Passthrough Allowlist ────────────────────────────────────
-// Keys that MUST go through the keydown → onData path. Everything NOT in
-// this set is suppressed at keydown (textarea input is the sole source).
-// This handles dead keys ("Dead", length > 1) which the old
-// key-length-based check failed to suppress.
-const KEYDOWN_PASSTHROUGH = new Set([
-  "Enter", "Backspace", "Tab", "Escape", "Delete",
-  "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
-  "Home", "End", "PageUp", "PageDown",
-  "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
-  "Insert", "Clear", "Pause", "ScrollLock", "PrintScreen",
-  "CapsLock", "NumLock",
-]);
+// (KEYDOWN_PASSTHROUGH removed — no longer blocking printable keydowns)
 
 // ─── Terminal Lifecycle ──────────────────────────────────────────────
 
@@ -328,183 +306,58 @@ export async function createTerminal(sessionId: string, color: string): Promise<
   // that MUST go through keydown ensures dead keys are suppressed.
   //
   // onBinary was removed — it was a redundant duplicate path.
-  // ── Composition state for dead key handling (macOS WKWebView only) ──
-  // WKWebView dead key flow:
-  //   1. compositionend fires with composed char (e.g. "'")
-  //   2. xterm fires onData("'") — legitimate, first occurrence
-  //   3. keydown fires for the RESOLVING key (e.g. "t") — normally suppressed
-  //   4. Composition's textarea input fires — xterm fires onData("'") AGAIN (duplicate)
-  //   5. The textarea input for "t" fires but produces NO onData (xterm already consumed it)
   //
-  // Fixes needed:
-  //   A. Suppress the duplicate onData for the composed char (step 4)
-  //   B. Allow the resolving keydown through (step 3) since textarea path is broken (step 5)
-  //   C. Dedup the resolving char in case the textarea path does fire for it
-  let lastComposedChar: string | null = null;
-  let composedDataFired = false;
-  let postCompPassOne = false;     // Allow ONE keydown through after composition
-  let postCompChar: string | null = null; // The resolving character to dedup
-  let postCompCharFired = false;
-  // Flag-based suppression: when we detect a spurious compositionend, we set this
-  // flag. The next multi-char onData within 100ms is suppressed unconditionally
-  // (no content matching needed — avoids the mismatch between e.data and textarea
-  // substring that caused all previous fix attempts to fail).
-  let suppressNextFlush = false;
+  // ── WKWebView dead key fix (macOS) ──
+  //
+  // Two targeted fixes for WKWebView (Tauri macOS) dead key composition:
+  //
+  // 1. patch-package (@xterm/xterm): Moves `_keyDownSeen = true` AFTER the
+  //    customKeyEventHandler check in _keyDown, so when the handler returns
+  //    false, _keyDownSeen stays false and _inputEvent can process the char.
+  //
+  // 2. Keypress blocking after compositionend: WKWebView fires a stale
+  //    keypress with the dead key char (e.g. keyCode=39 for apostrophe)
+  //    right after compositionend. xterm's _keyPress processes this and sets
+  //    _keyPressHandled=true, which causes _inputEvent to skip the NEXT
+  //    character (e.g. "t" in don't). Blocking this keypress prevents the
+  //    flag from being set.
+  //
+  // xterm's CompositionHelper handles ALL composition display and data
+  // injection natively — we do NOT intercept composition events.
+
+  let recentCompositionEnd = false;
 
   if (isMac) {
-    container.addEventListener("compositionend", (e: CompositionEvent) => {
-      const composed = e.data || null;
-
-      // Detect spurious WKWebView compositionend: if the composed text was
-      // already sent character-by-character (exists in textareaAccum), this is a
-      // textarea accumulation flush, NOT a real dead-key/IME composition.
-      // Unlike sentChars, textareaAccum is NEVER cleared on Enter/Ctrl-C/phase
-      // changes, so it correctly detects flushes even after prompt resets.
-      // Single-char compositions (dead keys / real IME) are always allowed through.
-      const entry = pool.get(sessionId);
-      if (composed && composed.length > 1 && entry) {
-        const accum = entry.textareaAccum;
-        // Use includes() for detection only (lenient) — we're just setting a flag,
-        // not suppressing data. False-positive detection is harmless because the
-        // flag only suppresses multi-char non-escape non-paste data within 100ms.
-        const isSpurious = accum.length > 0 && (
-          accum === composed ||
-          accum.endsWith(composed) || composed.endsWith(accum) ||
-          accum.includes(composed) || composed.includes(accum)
-        );
-        if (isSpurious) {
-          // NUCLEAR FIX: Clear xterm's hidden textarea so _finalizeComposition's
-          // setTimeout(0) callback reads "" and sends nothing. This kills the
-          // flush at the source rather than trying to match and suppress it downstream.
-          const textarea = container.querySelector("textarea.xterm-helper-textarea") as HTMLTextAreaElement | null;
-          if (textarea) {
-            textarea.value = "";
-          }
-          // Also reset our tracking to stay in sync with the now-empty textarea
-          entry.textareaAccum = "";
-          entry.sentChars = "";
-          // Belt-and-suspenders: flag-based suppression in case the textarea clear
-          // didn't prevent xterm from sending data (e.g. it cached the value)
-          suppressNextFlush = true;
-          setTimeout(() => { suppressNextFlush = false; }, 100);
-          return;
-        }
-      }
-
-      lastComposedChar = composed;
-      composedDataFired = false;
-      postCompPassOne = true;
-      postCompChar = null;
-      postCompCharFired = false;
-      // Safety timeout: clear all composition state
-      setTimeout(() => {
-        lastComposedChar = null;
-        composedDataFired = false;
-        postCompPassOne = false;
-        postCompChar = null;
-        postCompCharFired = false;
-        suppressNextFlush = false;
-      }, 200);
-    }, true); // capture phase — fires BEFORE xterm's bubbling-phase handler
+    // Track compositionend so we can block the stale keypress that follows.
+    // Does NOT stop propagation — xterm's CompositionHelper sees all events.
+    container.addEventListener("compositionend", () => {
+      recentCompositionEnd = true;
+      // Safety timeout: clear if no keypress/keydown arrives within 50ms
+      setTimeout(() => { recentCompositionEnd = false; }, 50);
+    }, true);
   }
 
   terminal.attachCustomKeyEventHandler((event: KeyboardEvent) => {
-    // Only intercept keydown — keyup is harmless
-    if (event.type !== "keydown") return true;
-
-    // After compositionend, the resolving character (e.g. "t" after dead key
-    // apostrophe) is LOST because:
-    // - xterm ignores keydown during/after composition
-    // - The textarea path is broken (composition's deferred input consumed it)
-    //
-    // CRITICAL: On WKWebView, event.key for the resolving keydown is the
-    // composed char + resolving char CONCATENATED (e.g. "'t" not "t").
-    // We must extract the resolving character from after the composed prefix.
-    //
-    // Cases:
-    //   Non-combining: ' + t → composedChar="'", event.key="'t" → resolve "t" ✓
-    //   Combining:     ' + a → composedChar="á", event.key="á"  → no resolve  ✓
-    //   Space resolve: ' + space → composedChar="'", event.key="' " → skip    ✓
-    if (postCompPassOne && !event.ctrlKey && !event.metaKey && !event.altKey) {
-      postCompPassOne = false;
-
-      // Extract resolving character: only for non-combining dead key results
-      // where event.key starts with the composed char and has additional chars.
-      let resolving: string | null = null;
-      if (lastComposedChar &&
-          event.key.startsWith(lastComposedChar) &&
-          event.key.length > lastComposedChar.length) {
-        resolving = event.key.slice(lastComposedChar.length);
-        // Don't inject space — it's a transparent dead key resolver
-        if (!resolving.trim()) resolving = null;
-      } else if (event.key.length === 1) {
-        // Fallback: single-char key (normal behavior)
-        resolving = event.key;
-      }
-
-      if (resolving) {
-        postCompChar = resolving;
-        postCompCharFired = true; // Mark as already fired — prevents textarea duplicate
-
-        // Inject directly — bypass xterm's composition state
-        handleTerminalInput(sessionId, resolving);
-        return false; // SUPPRESS xterm's keydown
-      }
-      // Combining case or space resolver — fall through to normal handling
+    // Block keypress right after compositionend (WKWebView fires stale
+    // keypress for the dead key char, setting _keyPressHandled=true which
+    // causes the NEXT character's _inputEvent to be skipped).
+    if (event.type === "keypress" && recentCompositionEnd) {
+      recentCompositionEnd = false;
+      return false;
     }
 
-    const shouldSuppress =
-      !event.isComposing &&
-      !event.ctrlKey && !event.metaKey && !event.altKey &&
-      !KEYDOWN_PASSTHROUGH.has(event.key);
+    // Clear composition flag on first keydown after compositionend.
+    // For non-combining dead keys, the resolving keydown fires after the
+    // keypress we just blocked.
+    if (event.type === "keydown" && recentCompositionEnd) {
+      recentCompositionEnd = false;
+    }
 
-    if (shouldSuppress) return false;
-
-    // Allow composing (IME) — textarea handles the final composed char
-    if (event.isComposing) return true;
-    // Allow modifier combos (Ctrl-C, Cmd-V, Alt-anything)
-    if (event.ctrlKey || event.metaKey || event.altKey) return true;
-    // Allow non-printable keys
+    // Let xterm handle everything else natively.
     return true;
   });
 
   terminal.onData((data) => {
-    // ── Composition dedup: suppress duplicate composed char from textarea input ──
-    // IMPORTANT: Do NOT clear lastComposedChar on non-matching data!
-    // The resolving key's onData (e.g. "t") fires BETWEEN the first and duplicate
-    // "'" events. Clearing state on "t" would let the duplicate "'" pass through.
-    // The compositionend listener's 200ms timeout handles cleanup.
-    if (lastComposedChar !== null && data === lastComposedChar) {
-      if (composedDataFired) {
-        return;
-      }
-      composedDataFired = true;
-    }
-
-    // ── Post-composition dedup: suppress duplicate resolving char ──
-    // The resolving key (e.g. "t") was allowed through keydown. If the textarea
-    // path also fires for it, suppress the duplicate.
-    // Same rule: do NOT clear on non-matching data — timeout handles cleanup.
-    if (postCompChar !== null && data === postCompChar) {
-      if (postCompCharFired) {
-        return;
-      }
-      postCompCharFired = true;
-    }
-
-    // Flag-based guard: if compositionend was detected as spurious, suppress the
-    // next multi-char non-escape non-paste data. No content matching needed — the
-    // flag is the signal. This avoids the fundamental problem where e.data differs
-    // from what xterm's _finalizeComposition actually sends via onData.
-    if (suppressNextFlush && data.length > 1) {
-      const isEsc = data.charCodeAt(0) === 0x1b;
-      const isPaste = data.includes("\x1b[200~");
-      if (!isEsc && !isPaste) {
-        suppressNextFlush = false;
-        return;
-      }
-    }
-
     handleTerminalInput(sessionId, data);
   });
 
@@ -571,8 +424,6 @@ export async function createTerminal(sessionId: string, color: string): Promise<
     historyProvider: createHistoryProvider(),
     sessionPhase: "creating",
     cwd: "",
-    sentChars: "",
-    textareaAccum: "",
   });
   creating.delete(sessionId);
 }
@@ -632,7 +483,6 @@ function handleTerminalInput(sessionId: string, data: string): void {
     const ghostContent = entry.ghostText;
     clearGhostText(sessionId);
     dismissSuggestions(sessionId);
-    entry.sentChars = ""; // Reset — ghost accept changes the prompt line
     writeToSession(sessionId, utf8ToBase64(ghostContent + "\r")).catch((err) => {
       console.warn(`[TerminalPool] write_to_session (ghost accept) failed for ${sessionId}:`, err);
     });
@@ -657,7 +507,6 @@ function handleTerminalInput(sessionId: string, data: string): void {
       const fullData = eraseSequence + result.command + "\r";
       entry.historyProvider.addCommand(result.command);
       entry.inputBuffer = "";
-      entry.sentChars = "";
       dismissSuggestions(sessionId);
       clearGhostText(sessionId);
       writeToSession(sessionId, utf8ToBase64(fullData)).catch((err) => {
@@ -667,64 +516,10 @@ function handleTerminalInput(sessionId: string, data: string): void {
     }
   }
 
-  // ── Dedup guard (Layer 3): WKWebView composition flush ──
-  // Safety net for cases where Layer 1 (textarea clear) and Layer 2 (flag-based
-  // suppression) both fail. This is the last line of defense.
-  //
-  // Only checks exact match (accum === printable). The suffix checks are removed
-  // because: (a) endsWith(printable) causes false positives on fast-typed batches
-  // like "lo" after "hello", and (b) printable.endsWith(accum) suppresses
-  // legitimate pastes ending with previously typed text.
-  //
-  // With the textarea-clearing approach in Layer 1, textareaAccum is reset after
-  // each spurious detection, so exact match is sufficient.
-  if (data.length > 1) {
-    const isEscapeSeq = data.charCodeAt(0) === 0x1b;
-    const isBracketedPaste = data.includes("\x1b[200~");
-    if (!isEscapeSeq && !isBracketedPaste) {
-      let printable = "";
-      for (let i = 0; i < data.length; i++) {
-        if (data.charCodeAt(i) >= 32) printable += data[i];
-      }
-      if (printable.length > 1) {
-        const accum = entry.textareaAccum;
-        // Primary: exact match against textareaAccum
-        if (accum.length > 0 && accum === printable) {
-          return;
-        }
-        // Secondary: exact match against sentChars
-        if (entry.sentChars.length > 0 && entry.sentChars === printable) {
-          return;
-        }
-      }
-    }
-  }
-
-  // ── Always pass data to PTY ──
+  // ── Pass data to PTY ──
   writeToSession(sessionId, utf8ToBase64(data)).catch((err) => {
     console.warn(`[TerminalPool] write_to_session failed for ${sessionId}:`, err);
   });
-
-  // ── Track sent characters for dedup ──
-  for (let i = 0; i < data.length; i++) {
-    const code = data.charCodeAt(i);
-    if (code === 0x0d || code === 0x03) {
-      // Enter or Ctrl-C: reset sent window (new prompt line)
-      // NOTE: only sentChars resets — textareaAccum persists (textarea is never cleared)
-      entry.sentChars = "";
-    } else if (code >= 32) {
-      entry.sentChars += data[i];
-      if (entry.sentChars.length > SENT_CHARS_MAX) {
-        entry.sentChars = entry.sentChars.slice(-SENT_CHARS_MAX);
-      }
-      // textareaAccum mirrors what xterm's textarea holds — never cleared on
-      // Enter/Ctrl-C/phase changes, only truncated on overflow.
-      entry.textareaAccum += data[i];
-      if (entry.textareaAccum.length > TEXTAREA_ACCUM_MAX) {
-        entry.textareaAccum = entry.textareaAccum.slice(-TEXTAREA_ACCUM_MAX);
-      }
-    }
-  }
 
   // ── Debounced suggestion computation ──
   if (intelligenceActive && entry.inputBuffer.trim()) {
@@ -1060,7 +855,6 @@ export function setSessionPhase(sessionId: string, phase: string): void {
   // Dismiss suggestions when entering busy phase
   if (phase !== "idle" && phase !== "shell_ready") {
     entry.inputBuffer = "";
-    entry.sentChars = "";
     dismissSuggestions(sessionId);
     clearGhostText(sessionId);
   }
@@ -1305,12 +1099,6 @@ export function sendShortcutCommand(sessionId: string, command: string): void {
   entry.inputBuffer = "";
   dismissSuggestions(sessionId);
   clearGhostText(sessionId);
-
-  // Reset dedup tracking — the command text flows through triggerDataEvent → onData
-  // → handleTerminalInput. If textareaAccum matches the command (e.g. user typed the
-  // same command before), the dedup guard would falsely suppress it (BUG 6.5).
-  entry.textareaAccum = "";
-  entry.sentChars = "";
 
   // Send backspaces (to clear existing text) + command text.
   // NO \r — the command is inserted on the prompt, not executed.

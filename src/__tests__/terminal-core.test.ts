@@ -91,35 +91,36 @@ describe("Invariant 2: attachCustomKeyEventHandler eliminates duplicate onData",
     expect(SRC).toContain("terminal.attachCustomKeyEventHandler(");
   });
 
-  it("suppresses keydown for non-passthrough keys (KEYDOWN_PASSTHROUGH allowlist)", () => {
-    // The main suppression logic must use an allowlist to decide what goes through keydown
-    expect(SRC).toContain("KEYDOWN_PASSTHROUGH.has(event.key)");
-    // The shouldSuppress variable must NOT use key-length as the primary check
-    const suppressBlock = SRC.match(/const shouldSuppress\s*=[\s\S]*?;/);
-    expect(suppressBlock).not.toBeNull();
-    expect(suppressBlock![0]).not.toContain("event.key.length");
-    expect(suppressBlock![0]).toContain("KEYDOWN_PASSTHROUGH");
+  it("blocks keypress after compositionend (recentCompositionEnd flag)", () => {
+    // The key handler blocks stale keypress events after compositionend
+    expect(SRC).toContain("recentCompositionEnd");
+    expect(SRC).toContain('event.type === "keypress" && recentCompositionEnd');
   });
 
-  it("allows modifier combos through (Ctrl, Meta, Alt)", () => {
-    expect(SRC).toContain("event.ctrlKey");
-    expect(SRC).toContain("event.metaKey");
-    expect(SRC).toContain("event.altKey");
+  it("lets all events through by default (returns true)", () => {
+    // The new approach lets xterm handle everything natively
+    // Only keypress after compositionend is blocked
+    const handlerBlock = SRC.match(/attachCustomKeyEventHandler\(\(event[\s\S]*?\}\)/);
+    expect(handlerBlock).not.toBeNull();
+    expect(handlerBlock![0]).toContain("return true");
   });
 
-  it("allows composing (IME) events through", () => {
-    expect(SRC).toContain("event.isComposing");
+  it("clears recentCompositionEnd on keydown", () => {
+    expect(SRC).toContain('event.type === "keydown" && recentCompositionEnd');
   });
 
-  it("only intercepts keydown, not keyup", () => {
-    expect(SRC).toMatch(/event\.type !== "keydown"/);
+  it("compositionend listener does NOT stop propagation", () => {
+    // xterm's CompositionHelper must see all events
+    expect(SRC).not.toMatch(/compositionend[\s\S]*?stopPropagation/);
   });
 
   it("returns false for printable keydown (suppress) — the key architectural decision", () => {
-    // The handler must return false to suppress printable keydown
-    // This means only textarea input events fire onData for printable chars
-    // The handler block ends with `if (shouldSuppress) return false;`
-    expect(SRC).toContain("if (shouldSuppress) return false;");
+    // After all passthrough checks (modifiers, KEYDOWN_PASSTHROUGH, isComposing),
+    // the handler returns false to suppress printable character keydowns.
+    // This means only textarea input events fire onData for printable chars.
+    const handlerBlock = SRC.match(/attachCustomKeyEventHandler\(\(event[\s\S]*?\}\)/);
+    expect(handlerBlock).not.toBeNull();
+    expect(handlerBlock![0]).toContain("return false");
   });
 
   it("NO timing-based dedup exists (removed architectural hack)", () => {
@@ -130,15 +131,16 @@ describe("Invariant 2: attachCustomKeyEventHandler eliminates duplicate onData",
     expect(SRC).not.toMatch(/< 10/); // No 10ms window
   });
 
-  it("NO heuristic-based dedup exists (composition dedup is allowed)", () => {
+  it("NO heuristic-based dedup exists (onData is clean)", () => {
     // No TIMING heuristics in onData — extract full block up to handleTerminalInput
     const onDataBlock = SRC.match(/terminal\.onData\(\(data\)\s*=>\s*\{[\s\S]*?handleTerminalInput\(sessionId, data\)/);
     expect(onDataBlock).not.toBeNull();
     // Must not have timing-based dedup
     expect(onDataBlock![0]).not.toContain("performance.now()");
-    // Composition-based dedup (lastComposedChar) is allowed — it uses
-    // compositionend events, not timing heuristics
-    expect(onDataBlock![0]).toContain("lastComposedChar");
+    // Must not have heuristic composition dedup — composition blocking
+    // happens at the event level now, not in onData
+    expect(onDataBlock![0]).not.toContain("lastComposedChar");
+    expect(onDataBlock![0]).not.toContain("suppressNextFlush");
   });
 });
 

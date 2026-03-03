@@ -1,0 +1,498 @@
+================================================================================
+WKWebView Dead Key / Composition Fix — Full Context
+================================================================================
+Date: 2026-03-03
+Status: IN PROGRESS — needs real WKWebView testing on Tauri
+================================================================================
+
+TABLE OF CONTENTS
+  1. The Problem
+  2. Root Cause Analysis
+  3. What We Already Tried (and failed)
+  4. Current Approach (v3 — native composition + keypress blocking)
+  5. Files Changed
+  6. What Still Needs To Be Done
+  7. How To Test
+  8. Key xterm.js Internals Reference
+
+================================================================================
+1. THE PROBLEM
+================================================================================
+
+On macOS WKWebView (used by Tauri), dead keys on Brazilian Portuguese keyboards
+cause two bugs:
+
+  BUG A: Character loss after non-combining dead key
+    - Type "don't" → get "don'" (the "t" is lost)
+    - Type "it's"  → get "it'" (the "s" is lost)
+
+  BUG B: Display corruption with combining dead keys
+    - Type "café"  → garbled display (é shows wrong)
+    - Type "são"   → garbled display (ã shows wrong)
+    - Type "naïve" → garbled display (ï shows wrong)
+    - Affects ALL combining dead keys: á, é, í, ó, ú, ã, õ, â, ê, ô, ü, etc.
+
+  BUG C: Text duplication
+    - Dead key apostrophe sometimes sends "'" twice
+    - WKWebView fires spurious compositionend events on Enter/Ctrl-C
+
+================================================================================
+2. ROOT CAUSE ANALYSIS
+================================================================================
+
+There are TWO separate root causes inside xterm.js (v6.0.0):
+
+--- Root Cause 1: _keyDownSeen flag (causes BUG A) ---
+
+In xterm's CoreBrowserTerminal.ts, the _keyDown method:
+
+    _keyDown(event) {
+      this._keyDownHandled = false;
+      this._keyDownSeen = true;          // <-- SET BEFORE handler check
+      if (this._customKeyEventHandler &&
+          this._customKeyEventHandler(event) === false) {
+        return false;                     // handler returns false, but
+      }                                   // _keyDownSeen is ALREADY true
+    }
+
+Then _inputEvent (line 1196) drops the input:
+
+    if (ev.data && ev.inputType === 'insertText' &&
+        (!ev.composed || !this._keyDownSeen))   // _keyDownSeen=true → SKIP
+
+When our customKeyEventHandler returns false to block a dead key keydown,
+_keyDownSeen is ALREADY set to true. The next character's input event is
+then skipped by _inputEvent because _keyDownSeen is true.
+
+--- Root Cause 2: _keyPressHandled flag (causes BUG A) ---
+
+WKWebView fires a STALE keypress event right after compositionend. xterm's
+_keyPress processes this and sets _keyPressHandled=true. Then _inputEvent
+skips the NEXT character because:
+
+    if (this._keyPressHandled) return false;  // in _inputEvent
+
+--- Root Cause 3: CompositionHelper bypass (causes BUG B) ---
+
+xterm.js has a built-in CompositionHelper class that:
+  - Listens for compositionstart/update/end on the textarea
+  - Shows a composition view overlay (shows pending dead key char)
+  - Reads the textarea value after compositionend (via setTimeout(0))
+  - Fires the resolved character via triggerDataEvent
+
+When we intercepted composition events with stopPropagation in capture phase
+(our old approaches), CompositionHelper NEVER SAW the events. This meant:
+  - No composition overlay displayed
+  - No proper textarea reading
+  - Characters came through corrupted paths → display corruption
+
+--- WKWebView-specific quirk ---
+
+WKWebView has a 10-year-old unfixed bug (WebKit Bug #165004) where
+composition events fire in the WRONG ORDER:
+
+    Chrome:    keydown → compositionstart → input → compositionend
+    WKWebView: compositionstart → input → keydown  ← REVERSED
+
+This means compositionstart fires BEFORE the Dead keydown. Because of this,
+xterm's CompositionHelper enters composing mode (_isComposing=true) before
+the Dead keydown arrives. When CompositionHelper.keydown() sees keyCode=229
+while _isComposing=true, it returns false (continue composing). This means
+_unprocessedDeadKey is NEVER SET in WKWebView — so letting xterm handle
+composition natively actually works correctly.
+
+================================================================================
+3. WHAT WE ALREADY TRIED (AND FAILED)
+================================================================================
+
+--- Attempt 1: insideComposition + stopPropagation on ALL composition events ---
+(v0.3.24 era)
+
+Approach:
+  - Set insideComposition=true on compositionstart
+  - stopPropagation on compositionstart, compositionupdate, compositionend
+  - Manually inject the resolved character from compositionend.data
+  - Block keydowns during composition via customKeyEventHandler
+
+Result:
+  - FIXED Bug A (character loss) and Bug C (duplication)
+  - CAUSED Bug B (display corruption) — CompositionHelper was completely
+    bypassed, so xterm couldn't manage its composition view or read textarea
+    properly. ALL combining dead keys (ã, á, é, etc.) showed garbled output.
+
+--- Attempt 2: lastComposedChar / postCompPassOne ---
+(v0.3.25 era)
+
+Approach:
+  - Track the last composed character
+  - After compositionend, set postCompPassOne=true
+  - On the first post-composition keydown, let it through (for non-combining
+    dead keys where the trailing char fires after compositionend)
+
+Result:
+  - Partially fixed non-combining dead keys (don't)
+  - Still had display corruption for combining dead keys
+  - Complex state machine was fragile and had edge cases
+
+--- Attempt 3: capturedTrailingInput ---
+
+Approach:
+  - During compositionend, check if there's a trailing input event
+  - Capture it and replay it after composition ends
+
+Result:
+  - Wrong hypothesis — assumed trailing input fires DURING composition
+  - In WKWebView, the trailing input fires AFTER compositionend, not during
+  - Never actually captured anything useful
+
+--- Attempt 4: blockNextPrintableKeydown ---
+
+Approach:
+  - After compositionend, set a flag to block the NEXT printable keydown
+  - This was meant to prevent xterm from processing the stale post-composition
+    keydown that WKWebView fires
+
+Result:
+  - Correct idea in spirit, but relied on capture-phase event ordering
+    guarantees that differ between browsers
+  - Still had the _keyDownSeen root cause problem inside xterm
+
+--- Attempt 5: suppressOnePostComposition ---
+
+Approach:
+  - After compositionend, suppress the next onData call entirely
+
+Result:
+  - ATE the next character entirely! "don't" → "don'" because "t" was
+    the "next onData" that got suppressed
+
+--- Attempt 6: Various dedup guards (sentChars, textareaAccum) ---
+(v0.3.25-0.3.26)
+
+Approach:
+  - Track characters sent via composition injection
+  - If onData fires with the same character, suppress the duplicate
+  - Track textarea accumulation to detect spurious compositions
+
+Result:
+  - Fixed duplication (Bug C) partially
+  - Did NOT fix display corruption (Bug B)
+  - textareaAccum approach was fragile with edge cases
+  - v0.3.26 (commit 5a44f39) used textarea clearing to fix spurious
+    compositionend duplication
+
+--- Attempt 7: Capture-phase input handler with textarea clearing ---
+
+Approach:
+  - Add capture-phase "input" listener on container
+  - During composition, stopPropagation on input events
+  - After composition, scrub textarea value to prevent stale content
+
+Result:
+  - Fixed some duplication edge cases
+  - BUT: Clearing textarea.value during active composition caused WKWebView
+    to CANCEL the composition (no compositionend fires). insideComposition
+    stayed true forever → TERMINAL FREEZE. Had to revert.
+
+--- Attempt 8: KEYDOWN_PASSTHROUGH + suppress all printable keydowns ---
+
+Approach:
+  - Define a Set of keys that should pass through keydown (Enter, Backspace,
+    arrows, function keys, etc.)
+  - Block ALL other keydowns via customKeyEventHandler returning false
+  - Rely solely on textarea input events for printable characters
+
+Result:
+  - Worked for regular typing
+  - Did NOT fix the _keyDownSeen root cause (xterm sets it BEFORE our handler)
+  - Did NOT fix display corruption when combined with composition interception
+
+--- Attempt 9: All of the above combined ---
+
+The codebase at one point had ALL of these mechanisms layered:
+  - insideComposition flag
+  - lastInjectedChar dedup guard
+  - needTextareaScrub
+  - KEYDOWN_PASSTHROUGH
+  - Capture-phase composition handlers with stopPropagation
+  - Capture-phase input handler
+  - Manual text injection from compositionend
+  - Textarea clearing
+  - blockNextPrintableKeydown
+
+Result:
+  - ~200 lines of composition handling code
+  - Still had display corruption for combining dead keys
+  - Extremely fragile, any change could break other scenarios
+
+--- KEY INSIGHT ---
+
+ALL approaches 1-9 tried to intercept events OUTSIDE xterm.js. But:
+
+  1. The _keyDownSeen bug is INSIDE xterm.js — no amount of external event
+     manipulation can change an internal flag set before our handler runs.
+
+  2. The display corruption happens because bypassing CompositionHelper
+     (via stopPropagation) prevents xterm from managing its composition view.
+
+The fundamental problem was trying to work around xterm.js bugs from the
+outside. The solution is to fix xterm.js itself (patch-package) and let
+its CompositionHelper work natively.
+
+================================================================================
+4. CURRENT APPROACH (v3 — native composition + keypress blocking)
+================================================================================
+
+The current code in TerminalPool.ts uses a radically simpler approach:
+
+--- Fix 1: patch-package (@xterm/xterm v6.0.0) ---
+
+Patches xterm.js compiled bundles (xterm.mjs and xterm.js) to move
+`_keyDownSeen = true` AFTER the customKeyEventHandler check:
+
+  BEFORE:
+    _keyDown(e) {
+      this._keyDownHandled = false;
+      this._keyDownSeen = true;              // BEFORE handler
+      if (this._customKeyEventHandler &&
+          this._customKeyEventHandler(e) === false) return false;
+    }
+
+  AFTER:
+    _keyDown(e) {
+      this._keyDownHandled = false;
+      if (this._customKeyEventHandler &&
+          this._customKeyEventHandler(e) === false) return false;
+      this._keyDownSeen = true;              // AFTER handler
+    }
+
+This means when our handler returns false, _keyDownSeen stays false,
+and _inputEvent can process the next character normally.
+
+Patch file: patches/@xterm+xterm+6.0.0.patch
+Applied automatically by patch-package via postinstall script.
+
+--- Fix 2: Block keypress after compositionend ---
+
+WKWebView fires a stale keypress event right after compositionend.
+We block it using a simple flag:
+
+    let recentCompositionEnd = false;
+
+    // Capture-phase listener — does NOT stop propagation
+    container.addEventListener("compositionend", () => {
+      recentCompositionEnd = true;
+      setTimeout(() => { recentCompositionEnd = false; }, 50);
+    }, true);
+
+    terminal.attachCustomKeyEventHandler((event) => {
+      // Block stale keypress after compositionend
+      if (event.type === "keypress" && recentCompositionEnd) {
+        recentCompositionEnd = false;
+        return false;
+      }
+      // Clear flag on first keydown after compositionend
+      if (event.type === "keydown" && recentCompositionEnd) {
+        recentCompositionEnd = false;
+      }
+      return true;  // Let xterm handle everything else natively
+    });
+
+--- Fix 3: Let xterm handle composition natively ---
+
+NO composition event interception. NO stopPropagation. NO manual injection.
+xterm's CompositionHelper handles ALL composition events natively:
+  - compositionstart → shows composition overlay
+  - compositionupdate → updates overlay
+  - compositionend → reads textarea, fires resolved character via onData
+
+This fixes display corruption (Bug B) because CompositionHelper can do
+its job properly.
+
+--- What was REMOVED (compared to previous approaches) ---
+
+  - insideComposition flag
+  - lastInjectedChar dedup guard
+  - needTextareaScrub flag
+  - KEYDOWN_PASSTHROUGH constant
+  - Capture-phase compositionstart handler (with stopPropagation)
+  - Capture-phase compositionupdate handler (with stopPropagation)
+  - Capture-phase compositionend handler (with stopPropagation + manual inject)
+  - Capture-phase input handler (with stopPropagation)
+  - Manual text injection from compositionend.data
+  - Textarea clearing during/after composition
+  - blockNextPrintableKeydown flag
+  - All printable keydown suppression
+  - onData guards (insideComposition, lastInjectedChar dedup)
+  - Event logging overlay
+  - ~200 lines of code → replaced with ~30 lines
+
+================================================================================
+5. FILES CHANGED
+================================================================================
+
+MODIFIED:
+  src/terminal/TerminalPool.ts
+    - Major rewrite of composition handling section (lines 291-362)
+    - Removed ~200 lines of composition interception code
+    - Added ~30 lines of targeted fix (recentCompositionEnd + keypress block)
+    - onData handler is now a simple one-liner
+
+  src/__tests__/wkwebview-dedup.test.ts
+    - Rewritten to verify new architecture
+    - Tests for: recentCompositionEnd flag, no stopPropagation, no old flags
+    - Tests that patch file exists
+
+  src/__tests__/terminal-core.test.ts
+    - Updated to match new TerminalPool.ts (removed references to old flags)
+
+  src/__tests__/functional-terminal.test.ts
+    - Updated to match new TerminalPool.ts
+
+  src/__tests__/terminal-input.test.ts
+    - Updated to match new TerminalPool.ts
+
+  package.json
+    - Added patch-package, @playwright/test as devDependencies
+    - Added postinstall script for patch-package
+    - Pinned @xterm/xterm to exact "6.0.0" (was "^6.0.0")
+    - Added test:e2e and test:e2e:headed scripts
+
+  package-lock.json
+    - Updated with new dependencies
+
+  .gitignore
+    - Added playwright-report/, test-results/ (Playwright output dirs)
+
+NEW FILES:
+  patches/@xterm+xterm+6.0.0.patch
+    - patch-package generated patch for xterm.js _keyDownSeen fix
+
+  playwright.config.ts
+    - Playwright config (WebKit only, e2e/ test dir, vite dev server)
+
+  e2e/harness/index.html
+    - Minimal HTML page for Playwright tests
+
+  e2e/harness/main.ts
+    - UPDATED — matches new TerminalPool.ts approach (native composition
+      + keypress blocking, no stopPropagation)
+
+  e2e/harness/vite.config.ts
+    - Vite config for the e2e test harness
+
+  e2e/wkwebview-composition.spec.ts
+    - Playwright WebKit tests for composition fix
+
+  src/__tests__/wkwebview-composition-behavioral.test.ts
+    - REWRITTEN — models the new approach with:
+      * xterm CompositionHelper handling all events natively
+      * recentCompositionEnd flag blocking stale keypress
+      * _isSendingComposition mechanism for immediate textarea read
+      * Patched _keyDownSeen behavior
+
+================================================================================
+6. WHAT STILL NEEDS TO BE DONE
+================================================================================
+
+Priority order:
+
+1. DONE — e2e/harness/main.ts updated to match new approach
+2. DONE — behavioral test rewritten with native composition model
+3. DONE — All 1292 vitest tests pass, TypeScript compiles clean
+4. TODO — Playwright e2e tests (npx playwright test)
+
+5. REAL WKWEBVIEW TESTING
+   - npm run tauri dev
+   - Type "don't" → should see "don't" (not "don'")
+   - Type "café" → should see "café" with correct display
+   - Type "são" → should see "são" with correct display
+   - Type "naïve" → should see "naïve" with correct display
+   - Test Enter after composition
+   - Test Backspace after composition
+   - Test rapid typing with interleaved compositions
+
+5. IF CURRENT APPROACH DOESN'T WORK
+   - The key question is whether xterm's CompositionHelper handles WKWebView's
+     reversed event ordering correctly
+   - We analyzed the code and believe it does (see Root Cause Analysis section),
+     but real testing is needed
+   - If display corruption persists, we may need a hybrid approach:
+     intercept only compositionstart/end (not update) to let CompositionHelper
+     partially work, while still fixing the keypress issue
+   - Another option: patch CompositionHelper itself via patch-package
+
+================================================================================
+7. HOW TO TEST
+================================================================================
+
+--- Install dependencies (applies patch automatically) ---
+  npm install
+
+--- Verify patch was applied ---
+  grep -c '_keyDownSeen' node_modules/@xterm/xterm/lib/xterm.mjs
+  # Should show the patched version where _keyDownSeen is AFTER the handler
+
+--- Run unit tests ---
+  npx vitest run
+
+--- Run Playwright WebKit tests ---
+  npx playwright install webkit   # first time only
+  npx playwright test
+  npx playwright test --headed    # to see the browser
+
+--- Run the actual app ---
+  npm run tauri dev
+
+--- Test dead keys (Brazilian Portuguese keyboard) ---
+  1. Switch to Brazilian Portuguese keyboard layout (or use macOS input source)
+  2. In the terminal, type: don't
+     - Press: d, o, n, [dead key '], t
+     - Expected: don't (5 chars)
+  3. Type: café
+     - Press: c, a, f, [dead key '], e
+     - Expected: café (4 chars, é should display correctly)
+  4. Type: são
+     - Press: s, [dead key ~], a, o
+     - Expected: são (3 chars, ã should display correctly)
+  5. Type: naïve
+     - Press: n, a, [dead key ¨], i, v, e
+     - Expected: naïve (5 chars)
+
+================================================================================
+8. KEY XTERM.JS INTERNALS REFERENCE
+================================================================================
+
+Files in node_modules/@xterm/xterm/src/browser/:
+
+CoreBrowserTerminal.ts:
+  - _keyDown (line 1021): customKeyEventHandler check → _keyDownSeen = true
+    → _compositionHelper.keydown() → evaluateKeyboardEvent
+  - _keyPress (line 1140): customKeyEventHandler check → _keyPressHandled = true
+  - _inputEvent (line 1192): checks _keyDownSeen and _keyPressHandled
+  - Composition listeners on textarea (lines 381-383): compositionstart/update/end
+  - Input listener on textarea (line 384): capture phase
+
+input/CompositionHelper.ts:
+  - compositionstart(): _isComposing = true, records position
+  - compositionend(): calls _finalizeComposition(true) → setTimeout(0) reads textarea
+  - keydown(): if composing + keyCode=229 → return false (continue composing)
+  - _finalizeComposition(true): reads textarea.value in setTimeout(0)
+
+common/input/Keyboard.ts:
+  - evaluateKeyboardEvent: handles special keys, modifiers, arrows
+  - Dead keys (keyCode=229): no match → result.key = undefined
+
+--- Important: WKWebView event ordering ---
+
+In WKWebView, compositionstart fires BEFORE the Dead keydown.
+This means when CompositionHelper.keydown() runs for the Dead key,
+_isComposing is ALREADY true. keyCode=229 + _isComposing → return false.
+So _unprocessedDeadKey at line 1039 is NEVER REACHED.
+
+This is why letting xterm handle composition natively SHOULD work in
+WKWebView — the reversed event ordering actually helps in this case.
+
+================================================================================
+END OF CONTEXT
+================================================================================

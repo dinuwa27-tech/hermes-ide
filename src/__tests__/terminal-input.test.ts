@@ -48,7 +48,7 @@ describe("Terminal input: onBinary handler removed (double apostrophe fix)", () 
   });
 
   it("onData handler calls handleTerminalInput", () => {
-    const match = source.match(/terminal\.onData\(\(data\)\s*=>\s*\{[\s\S]*?handleTerminalInput/);
+    const match = source.match(/terminal\.onData\(\(data\)\s*=>\s*\{[\s\S]*?handleTerminalInput/s);
     expect(match).not.toBeNull();
   });
 
@@ -56,14 +56,10 @@ describe("Terminal input: onBinary handler removed (double apostrophe fix)", () 
     expect(source).toContain("onBinary was removed");
   });
 
-  it("attachCustomKeyEventHandler suppresses non-passthrough keydown via allowlist", () => {
+  it("attachCustomKeyEventHandler blocks keypress after compositionend", () => {
     expect(source).toContain("attachCustomKeyEventHandler");
-    expect(source).toContain("KEYDOWN_PASSTHROUGH.has(event.key)");
-    // The shouldSuppress variable must NOT use key-length as the primary check
-    const suppressBlock = source.match(/const shouldSuppress\s*=[\s\S]*?;/);
-    expect(suppressBlock).not.toBeNull();
-    expect(suppressBlock![0]).not.toContain("event.key.length");
-    expect(suppressBlock![0]).toContain("KEYDOWN_PASSTHROUGH");
+    expect(source).toContain("recentCompositionEnd");
+    expect(source).toContain('event.type === "keypress" && recentCompositionEnd');
   });
 
   it("no timing-based dedup hack remains", () => {
