@@ -336,7 +336,7 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
                   <button
                     key={p.id}
                     className={`session-creator-provider-card ${aiProvider === p.id ? "selected" : ""} ${!p.enabled ? "disabled" : ""} ${p.enabled && highlightedProviderIndex === providerIdx ? "selected" : ""}`}
-                    onClick={() => p.enabled && setAiProvider(p.id)}
+                    onClick={() => { if (p.enabled) { setAiProvider(p.id); setHighlightedProviderIndex(providerIdx); } }}
                     disabled={!p.enabled}
                   >
                     <span className="session-creator-provider-name">{p.label}</span>
@@ -348,7 +348,7 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
               })}
               <button
                 className={`session-creator-provider-card ${aiProvider === null ? "selected" : ""} ${highlightedProviderIndex === enabledProviders.length - 1 ? "selected" : ""}`}
-                onClick={() => setAiProvider(null)}
+                onClick={() => { setAiProvider(null); setHighlightedProviderIndex(enabledProviders.length - 1); }}
               >
                 <span className="session-creator-provider-name">Shell Only</span>
                 <span className="session-creator-provider-desc">No AI agent</span>
