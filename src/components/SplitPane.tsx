@@ -4,9 +4,10 @@ import { useSession } from "../state/SessionContext";
 import { ScopeBar } from "./ScopeBar";
 import { ProviderActionsBar } from "./ProviderActionsBar";
 import { TerminalPane } from "./TerminalPane";
-import { focusTerminal, terminalHasSelection, terminalGetSelection } from "../terminal/TerminalPool";
+import { focusTerminal, terminalHasSelection, terminalGetSelection, insertFilePaths } from "../terminal/TerminalPool";
 import { SplitDirection, collectPanes } from "../state/layoutTypes";
 import { useContextMenu, buildTerminalMenuItems, buildPaneHeaderMenuItems } from "../hooks/useContextMenu";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 // Use text/plain with a prefix so it works in all WebViews
 const DRAG_PREFIX = "hermes-session:";
@@ -18,6 +19,18 @@ export function encodeSessionDrag(sessionId: string): string {
 export function decodeSessionDrag(data: string): string | null {
   if (data.startsWith(DRAG_PREFIX)) return data.slice(DRAG_PREFIX.length);
   return null;
+}
+
+// ── Shared drag state ──────────────────────────────────────────────
+// SessionList sets this on dragstart; SplitPane reads it in the Tauri handler.
+let _draggedSessionId: string | null = null;
+
+export function setDraggedSession(id: string | null) {
+  _draggedSessionId = id;
+}
+
+export function getDraggedSession(): string | null {
+  return _draggedSessionId;
 }
 
 interface SplitPaneProps {
@@ -52,18 +65,115 @@ export function SplitPane({ paneId, sessionId }: SplitPaneProps) {
   const isFocused = state.layout.focusedPaneId === paneId;
   const paneRef = useRef<HTMLDivElement>(null);
   const [dropZone, setDropZone] = useState<DropZone>(null);
-  const dragCounterRef = useRef(0);
+  const [fileDragOver, setFileDragOver] = useState(false);
+
+  // Keep refs for values used inside the Tauri handler to avoid re-registering
+  const layoutRef = useRef(state.layout.root);
+  layoutRef.current = state.layout.root;
 
   useEffect(() => {
     if (isFocused) focusTerminal(sessionId);
   }, [isFocused, sessionId]);
 
+  // ── Tauri native drag-drop — handles BOTH session drags and OS file drags ──
+  // With dragDropEnabled: true, Tauri intercepts all drags at the native level,
+  // so HTML5 drag events don't fire reliably. We handle everything here.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    let isFileDrag = false;
+    // Capture the dragged session ID on enter — by the time "drop" fires,
+    // SessionList's dragend cleanup may have already cleared the global.
+    let capturedSessionId: string | null = null;
+
+    getCurrentWebview().onDragDropEvent((event) => {
+      if (cancelled) return;
+      const { type } = event.payload;
+
+      if (type === "leave") {
+        isFileDrag = false;
+        capturedSessionId = null;
+        setFileDragOver(false);
+        setDropZone(null);
+        return;
+      }
+
+      if (type === "enter") {
+        isFileDrag = event.payload.paths.length > 0;
+        capturedSessionId = _draggedSessionId;
+      }
+
+      const rect = paneRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
+      const dpr = window.devicePixelRatio || 1;
+      const x = event.payload.position.x / dpr;
+      const y = event.payload.position.y / dpr;
+      const isOver = x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+
+      if (type === "enter" || type === "over") {
+        if (isFileDrag) {
+          setFileDragOver(isOver);
+          setDropZone(null);
+        } else if (capturedSessionId) {
+          setFileDragOver(false);
+          setDropZone(isOver ? computeDropZone(x, y, rect) : null);
+        }
+      } else if (type === "drop") {
+        setFileDragOver(false);
+        setDropZone(null);
+
+        if (!isOver) { isFileDrag = false; capturedSessionId = null; return; }
+
+        if (isFileDrag && event.payload.paths.length > 0) {
+          // ── File drop → insert path(s) into terminal ──
+          insertFilePaths(sessionId, event.payload.paths);
+        } else if (capturedSessionId && capturedSessionId !== sessionId) {
+          // ── Session drop → split/replace pane ──
+          const droppedSessionId = capturedSessionId;
+
+          // Prevent duplicate panes
+          const root = layoutRef.current;
+          if (root) {
+            const existing = collectPanes(root).find((p) => p.sessionId === droppedSessionId);
+            if (existing) {
+              dispatch({ type: "FOCUS_PANE", paneId: existing.id });
+              isFileDrag = false;
+              return;
+            }
+          }
+
+          const zone = computeDropZone(x, y, rect);
+          if (zone === "center") {
+            dispatch({ type: "SET_PANE_SESSION", paneId, sessionId: droppedSessionId });
+          } else {
+            const direction: SplitDirection =
+              (zone === "left" || zone === "right") ? "horizontal" : "vertical";
+            const insertBefore = zone === "left" || zone === "top";
+            dispatch({
+              type: "SPLIT_PANE",
+              paneId,
+              direction,
+              newSessionId: droppedSessionId,
+              insertBefore,
+            });
+          }
+        }
+
+        isFileDrag = false;
+        capturedSessionId = null;
+      }
+    }).then((fn) => {
+      if (cancelled) { fn(); } else { unlisten = fn; }
+    });
+
+    return () => { cancelled = true; unlisten?.(); };
+  }, [sessionId, paneId, dispatch]);
+
   const handleMouseDown = useCallback(() => {
     if (!isFocused) {
       dispatch({ type: "FOCUS_PANE", paneId });
     } else {
-      // Pane already focused in React state, but xterm may have lost DOM focus
-      // (e.g. after a system dialog stole focus). Re-focus it.
       focusTerminal(sessionId);
     }
   }, [isFocused, paneId, sessionId, dispatch]);
@@ -103,7 +213,6 @@ export function SplitPane({ paneId, sessionId }: SplitPaneProps) {
         dispatch({ type: "CLOSE_PANE", paneId });
         break;
       case "pane.close-others":
-        // Close all panes except this one
         if (state.layout.root) {
           const allPanes = collectPanes(state.layout.root);
           for (const p of allPanes) {
@@ -116,83 +225,13 @@ export function SplitPane({ paneId, sessionId }: SplitPaneProps) {
 
   const { showMenu: showPaneMenu } = useContextMenu(handlePaneHeaderAction);
 
-  const handleDragEnter = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    dragCounterRef.current++;
-    if (paneRef.current) {
-      setDropZone(computeDropZone(e.clientX, e.clientY, paneRef.current.getBoundingClientRect()));
-    }
-  }, []);
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    if (paneRef.current) {
-      setDropZone(computeDropZone(e.clientX, e.clientY, paneRef.current.getBoundingClientRect()));
-    }
-  }, []);
-
-  const handleDragLeave = useCallback(() => {
-    dragCounterRef.current--;
-    if (dragCounterRef.current <= 0) {
-      dragCounterRef.current = 0;
-      setDropZone(null);
-    }
-  }, []);
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      dragCounterRef.current = 0;
-      setDropZone(null);
-
-      const raw = e.dataTransfer.getData("text/plain");
-      const droppedSessionId = decodeSessionDrag(raw);
-      if (!droppedSessionId || droppedSessionId === sessionId) return;
-
-      // Prevent duplicate panes: if a pane already shows this session, focus it instead
-      if (state.layout.root) {
-        const existing = collectPanes(state.layout.root).find((p) => p.sessionId === droppedSessionId);
-        if (existing) {
-          dispatch({ type: "FOCUS_PANE", paneId: existing.id });
-          return;
-        }
-      }
-
-      const zone = paneRef.current
-        ? computeDropZone(e.clientX, e.clientY, paneRef.current.getBoundingClientRect())
-        : "center";
-
-      if (zone === "center") {
-        dispatch({ type: "SET_PANE_SESSION", paneId, sessionId: droppedSessionId });
-      } else {
-        const direction: SplitDirection =
-          (zone === "left" || zone === "right") ? "horizontal" : "vertical";
-        const insertBefore = zone === "left" || zone === "top";
-        dispatch({
-          type: "SPLIT_PANE",
-          paneId,
-          direction,
-          newSessionId: droppedSessionId,
-          insertBefore,
-        });
-      }
-    },
-    [paneId, sessionId, dispatch, state.layout.root],
-  );
-
   if (!session) return null;
 
   return (
     <div
       ref={paneRef}
-      className={`split-pane ${isFocused ? "split-pane-focused" : ""} ${dropZone ? "split-pane-dragging" : ""}`}
+      className={`split-pane ${isFocused ? "split-pane-focused" : ""} ${dropZone || fileDragOver ? "split-pane-dragging" : ""}`}
       onMouseDown={handleMouseDown}
-      onDragEnter={handleDragEnter}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
     >
       <div className="split-pane-header" onContextMenu={(e) => showPaneMenu(e, buildPaneHeaderMenuItems(paneId, hasSiblings))}>
         <div className="split-pane-label">
@@ -225,10 +264,10 @@ export function SplitPane({ paneId, sessionId }: SplitPaneProps) {
       <div className="split-pane-drag-capture" />
 
       {/* Active drop zone highlight */}
-      <div className={`split-pane-drop-overlay ${dropZone ? `split-pane-drop-${dropZone} split-pane-drop-visible` : ""}`}>
-        {dropZone && (
+      <div className={`split-pane-drop-overlay ${fileDragOver ? "split-pane-drop-center split-pane-drop-visible split-pane-drop-file" : dropZone ? `split-pane-drop-${dropZone} split-pane-drop-visible` : ""}`}>
+        {(dropZone || fileDragOver) && (
           <div className="split-pane-drop-label">
-            {dropZone === "center" ? "Replace" : `Split ${dropZone}`}
+            {fileDragOver ? "Drop to insert path" : dropZone === "center" ? "Replace" : `Split ${dropZone}`}
           </div>
         )}
       </div>

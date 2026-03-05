@@ -128,3 +128,7 @@
 .split-pane-drop-center {
   background: var(--accent-dim);
 }
+/* File drop — full pane highlight with dashed border */
+.split-pane-drop-file.split-pane-drop-visible {
+  border-style: dashed;
+}

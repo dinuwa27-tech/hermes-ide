@@ -2,7 +2,7 @@ import "../styles/components/SessionList.css";
 import { useState, useMemo, useCallback, useRef } from "react";
 import { SessionData } from "../state/SessionContext";
 import { updateSessionGroup, updateSessionLabel } from "../api/sessions";
-import { encodeSessionDrag } from "./SplitPane";
+import { encodeSessionDrag, setDraggedSession } from "./SplitPane";
 import { useContextMenu, buildSessionMenuItems, buildEmptyAreaMenuItems } from "../hooks/useContextMenu";
 import { fmt } from "../utils/platform";
 
@@ -133,9 +133,12 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
   const handleDragStart = useCallback((e: React.DragEvent, session: SessionData) => {
     e.dataTransfer.setData("text/plain", encodeSessionDrag(session.id));
     e.dataTransfer.effectAllowed = "move";
+    // Share dragged session ID with SplitPane's Tauri drag handler
+    setDraggedSession(session.id);
     // Activate all pane drag-capture overlays so xterm canvas doesn't eat events
     document.body.classList.add("session-dragging");
     const cleanup = () => {
+      setDraggedSession(null);
       document.body.classList.remove("session-dragging");
       window.removeEventListener("dragend", cleanup);
       window.removeEventListener("drop", cleanup);

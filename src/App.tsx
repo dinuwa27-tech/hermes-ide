@@ -32,7 +32,8 @@ import { PromptComposer } from "./components/PromptComposer";
 import { SplitLayout } from "./components/SplitLayout";
 import { setSetting } from "./api/settings";
 import { SplitDirection, collectPanes } from "./state/layoutTypes";
-import { decodeSessionDrag } from "./components/SplitPane";
+import { getDraggedSession } from "./components/SplitPane";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { focusTerminal } from "./terminal/TerminalPool";
 import { useNativeMenuEvents } from "./hooks/useNativeMenuEvents";
 import { useMenuStateSync } from "./hooks/useMenuStateSync";
@@ -171,6 +172,38 @@ function AppContent() {
     return () => document.removeEventListener("contextmenu", suppress, true);
   }, []);
 
+  // Tauri drag-drop for empty container (no panes) — session drop creates first pane
+  const layoutRootRef = useRef(state.layout.root);
+  layoutRootRef.current = state.layout.root;
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+
+    let capturedSessionId: string | null = null;
+
+    getCurrentWebview().onDragDropEvent((event) => {
+      if (cancelled) return;
+      // Only handle when no panes exist — SplitPane handles drops when panes exist
+      if (layoutRootRef.current) return;
+
+      if (event.payload.type === "enter") {
+        capturedSessionId = getDraggedSession();
+      } else if (event.payload.type === "drop") {
+        if (capturedSessionId) {
+          dispatch({ type: "INIT_PANE", sessionId: capturedSessionId });
+        }
+        capturedSessionId = null;
+      } else if (event.payload.type === "leave") {
+        capturedSessionId = null;
+      }
+    }).then((fn) => {
+      if (cancelled) { fn(); } else { unlisten = fn; }
+    });
+
+    return () => { cancelled = true; unlisten?.(); };
+  }, [dispatch]);
+
   // ── Instant session creation (Cmd+N / Cmd+T) ──
   const createSessionDirect = useCallback(async () => {
     const session = await createSession({});
@@ -278,25 +311,7 @@ function AppContent() {
         )}
         <div className="main-area">
           <div className="terminal-and-timeline">
-            <div
-              className="terminal-container"
-              onDragOver={(e) => {
-                if (!state.layout.root) {
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = "move";
-                }
-              }}
-              onDrop={(e) => {
-                if (!state.layout.root) {
-                  e.preventDefault();
-                  const raw = e.dataTransfer.getData("text/plain");
-                  const droppedSessionId = decodeSessionDrag(raw);
-                  if (droppedSessionId) {
-                    dispatch({ type: "INIT_PANE", sessionId: droppedSessionId });
-                  }
-                }
-              }}
-            >
+            <div className="terminal-container">
               {state.layout.root ? (
                 <SplitLayout node={state.layout.root} />
               ) : (

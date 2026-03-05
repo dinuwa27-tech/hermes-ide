@@ -1165,3 +1165,30 @@ export function terminalHasSelection(sessionId: string): boolean {
 export function terminalGetSelection(sessionId: string): string {
   return pool.get(sessionId)?.terminal.getSelection() ?? "";
 }
+
+/** Insert file paths into the terminal as typed text (e.g. from OS file drop).
+ *  Paths with spaces are quoted. Multiple paths are space-separated. */
+export function insertFilePaths(sessionId: string, paths: string[]): void {
+  const entry = pool.get(sessionId);
+  if (!entry || paths.length === 0) return;
+
+  const formatted = paths
+    .map((p) => (p.includes(" ") ? `"${p}"` : p))
+    .join(" ");
+
+  // Append a trailing space so the user can keep typing / drop more files
+  const text = formatted + " ";
+
+  dismissSuggestions(sessionId);
+  clearGhostText(sessionId);
+
+  // Write through the PTY so the shell sees it as pasted input
+  writeToSession(sessionId, utf8ToBase64(text)).catch((err) => {
+    console.warn(`[TerminalPool] write_to_session (file drop) failed for ${sessionId}:`, err);
+  });
+
+  // Update input buffer to keep suggestion engine in sync
+  entry.inputBuffer += text;
+
+  focusTerminal(sessionId);
+}
