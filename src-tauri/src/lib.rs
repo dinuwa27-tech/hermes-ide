@@ -183,6 +183,12 @@ pub fn run() {
             git::list_directory,
             // Project search
             git::search_project,
+            // Git worktree management
+            git::git_create_worktree,
+            git::git_remove_worktree,
+            git::git_list_worktrees,
+            git::git_check_branch_available,
+            git::git_session_worktree_info,
             // Menu
             menu::show_context_menu,
             menu::update_menu_state,
