@@ -178,7 +178,6 @@ export function SessionBranchSelector({ realmId, onBranchSelected, onSkip }: Ses
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (tab === "existing") {
-      const available = filteredBranches.filter((b) => !b.taken);
       if (e.key === "ArrowDown") {
         e.preventDefault();
         setHighlightedIndex((prev) => Math.min(prev + 1, filteredBranches.length - 1));
