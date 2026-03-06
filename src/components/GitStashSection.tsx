@@ -48,7 +48,8 @@ export function parseStashBranch(message: string): string {
 // ─── Component ────────────────────────────────────────────────────────
 
 interface GitStashSectionProps {
-  projectPath: string;
+  sessionId: string;
+  realmId: string;
   stashCount: number;
   hasChanges: boolean;
   onRefresh: () => void;

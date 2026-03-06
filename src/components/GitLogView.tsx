@@ -8,7 +8,8 @@ import "../styles/components/GitPanel.css";
 // ─── Props ───────────────────────────────────────────────────────────
 
 interface GitLogViewProps {
-  projectPath: string;
+  sessionId: string;
+  realmId: string;
 }
 
 // ─── Pure helpers (exported for testing) ─────────────────────────────

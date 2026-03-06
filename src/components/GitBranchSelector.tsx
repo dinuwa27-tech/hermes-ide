@@ -5,7 +5,8 @@ import type { GitToast } from "./GitPanel";
 import { useContextMenu, buildBranchMenuItems } from "../hooks/useContextMenu";
 
 interface GitBranchSelectorProps {
-  projectPath: string;
+  sessionId: string;
+  realmId: string;
   currentBranch: string | null;
   onRefresh: () => void;
   onToast: (message: string, type?: GitToast["type"]) => void;
@@ -59,7 +60,7 @@ export function validateBranchName(name: string): string | null {
   return null;
 }
 
-export function GitBranchSelector({ projectPath, currentBranch, onRefresh, onToast, onClose, triggerRef }: GitBranchSelectorProps) {
+export function GitBranchSelector({ sessionId, realmId, currentBranch, onRefresh, onToast, onClose, triggerRef }: GitBranchSelectorProps) {
   const [branches, setBranches] = useState<GitBranch[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -96,7 +97,7 @@ export function GitBranchSelector({ projectPath, currentBranch, onRefresh, onToa
     if (!branch) return;
     switch (actionId) {
       case "branch.checkout":
-        gitCheckoutBranch(projectPath, branch.name)
+        gitCheckoutBranch(sessionId, realmId, branch.name)
           .then(() => { onRefresh(); onToast(`Checked out ${branch.name}`, "success"); })
           .catch((e) => onToast(String(e), "error"));
         break;
@@ -104,26 +105,26 @@ export function GitBranchSelector({ projectPath, currentBranch, onRefresh, onToa
         navigator.clipboard.writeText(branch.name).catch(console.error);
         break;
       case "branch.delete":
-        gitDeleteBranch(projectPath, branch.name, false)
+        gitDeleteBranch(sessionId, realmId, branch.name, false)
           .then(() => { onRefresh(); onToast(`Deleted ${branch.name}`, "success"); })
           .catch((e) => onToast(String(e), "error"));
         break;
     }
-  }, [projectPath, onRefresh, onToast]);
+  }, [sessionId, realmId, onRefresh, onToast]);
 
   const { showMenu: showBranchMenu } = useContextMenu(handleBranchAction);
 
   const loadBranches = useCallback(async () => {
     try {
       setLoading(true);
-      const result = await gitListBranches(projectPath);
+      const result = await gitListBranches(sessionId, realmId);
       setBranches(result);
     } catch (e) {
       setError(String(e));
     } finally {
       setLoading(false);
     }
-  }, [projectPath]);
+  }, [sessionId, realmId]);
 
   useEffect(() => {
     loadBranches();
@@ -173,14 +174,14 @@ export function GitBranchSelector({ projectPath, currentBranch, onRefresh, onToa
   const handleCheckout = useCallback(async (name: string) => {
     try {
       setError(null);
-      const result = await gitCheckoutBranch(projectPath, name);
+      const result = await gitCheckoutBranch(sessionId, realmId, name);
       onToast(result.message);
       onRefresh();
       onClose();
     } catch (e) {
       setError(String(e));
     }
-  }, [projectPath, onRefresh, onToast, onClose]);
+  }, [sessionId, realmId, onRefresh, onToast, onClose]);
 
   const handleCreate = useCallback(async () => {
     const validationError = validateBranchName(newName);
@@ -190,7 +191,7 @@ export function GitBranchSelector({ projectPath, currentBranch, onRefresh, onToa
     }
     try {
       setError(null);
-      const result = await gitCreateBranch(projectPath, newName.trim(), true);
+      const result = await gitCreateBranch(sessionId, realmId, newName.trim(), true);
       onToast(result.message);
       setNewName("");
       setCreating(false);
@@ -199,12 +200,12 @@ export function GitBranchSelector({ projectPath, currentBranch, onRefresh, onToa
     } catch (e) {
       setError(String(e));
     }
-  }, [projectPath, newName, onRefresh, onToast, onClose]);
+  }, [sessionId, realmId, newName, onRefresh, onToast, onClose]);
 
   const handleDelete = useCallback(async (name: string, force: boolean) => {
     try {
       setError(null);
-      const result = await gitDeleteBranch(projectPath, name, force);
+      const result = await gitDeleteBranch(sessionId, realmId, name, force);
       onToast(result.message);
       setConfirmDelete(null);
       loadBranches();
@@ -212,7 +213,7 @@ export function GitBranchSelector({ projectPath, currentBranch, onRefresh, onToa
     } catch (e) {
       setError(String(e));
     }
-  }, [projectPath, onRefresh, onToast, loadBranches]);
+  }, [sessionId, realmId, onRefresh, onToast, loadBranches]);
 
   const filtered = filterBranches(branches, search);
   const { local, remote } = groupBranches(filtered);

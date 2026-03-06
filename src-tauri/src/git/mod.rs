@@ -1,3 +1,5 @@
+pub mod worktree;
+
 use git2::{
     BranchType, Cred, DiffOptions, FetchOptions, IndexAddOption, PushOptions, RemoteCallbacks,
     Repository, StatusOptions,
@@ -9,6 +11,23 @@ use std::sync::Arc;
 use tauri::State;
 
 use crate::AppState;
+use crate::db::Database;
+
+/// Resolves the worktree path for a given session+realm from the database.
+/// Falls back to looking up the realm's path directly if no worktree entry exists.
+fn resolve_worktree_path(db: &Database, session_id: &str, realm_id: &str) -> Result<String, String> {
+    // Try to find a worktree entry for this session+realm
+    if let Some(wt) = db.get_worktree_by_session_and_realm(session_id, realm_id)
+        .map_err(|e| format!("Failed to look up worktree: {}", e))? {
+        return Ok(wt.worktree_path);
+    }
+    // Fallback: look up the realm's path directly
+    if let Some(realm) = db.get_realm(realm_id)
+        .map_err(|e| format!("Failed to look up realm: {}", e))? {
+        return Ok(realm.path);
+    }
+    Err(format!("No worktree or realm found for session={}, realm={}", session_id, realm_id))
+}
 
 // ─── Data Models ────────────────────────────────────────────────────
 
@@ -459,13 +478,18 @@ pub fn git_status(
 ) -> Result<GitSessionStatus, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let realms = db.get_session_realms(&session_id)?;
-    drop(db);
 
+    // Resolve worktree paths for each realm
     let projects: Vec<GitProjectStatus> = realms
         .iter()
-        .map(|r| get_project_git_status(&r.id, &r.name, &r.path))
+        .map(|r| {
+            let path = resolve_worktree_path(&db, &session_id, &r.id)
+                .unwrap_or_else(|_| r.path.clone());
+            get_project_git_status(&r.id, &r.name, &path)
+        })
         .filter(|p| p.is_git_repo)
         .collect();
+    drop(db);
 
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -479,7 +503,10 @@ pub fn git_status(
 }
 
 #[tauri::command]
-pub fn git_stage(project_path: String, paths: Vec<String>) -> Result<GitOperationResult, String> {
+pub fn git_stage(state: State<'_, AppState>, session_id: String, realm_id: String, paths: Vec<String>) -> Result<GitOperationResult, String> {
+    let db = state.db.lock().map_err(|e| format!("DB lock error: {}", e))?;
+    let project_path = resolve_worktree_path(&db, &session_id, &realm_id)?;
+    drop(db);
     let repo = Repository::open(&project_path).map_err(|e| e.to_string())?;
     let mut index = repo.index().map_err(|e| e.to_string())?;
 
@@ -516,9 +543,14 @@ pub fn git_stage(project_path: String, paths: Vec<String>) -> Result<GitOperatio
 
 #[tauri::command]
 pub fn git_unstage(
-    project_path: String,
+    state: State<'_, AppState>,
+    session_id: String,
+    realm_id: String,
     paths: Vec<String>,
 ) -> Result<GitOperationResult, String> {
+    let db = state.db.lock().map_err(|e| format!("DB lock error: {}", e))?;
+    let project_path = resolve_worktree_path(&db, &session_id, &realm_id)?;
+    drop(db);
     let repo = Repository::open(&project_path).map_err(|e| e.to_string())?;
 
     let head_tree = repo
@@ -547,11 +579,16 @@ pub fn git_unstage(
 
 #[tauri::command]
 pub fn git_commit(
-    project_path: String,
+    state: State<'_, AppState>,
+    session_id: String,
+    realm_id: String,
     message: String,
     author_name: Option<String>,
     author_email: Option<String>,
 ) -> Result<GitOperationResult, String> {
+    let db = state.db.lock().map_err(|e| format!("DB lock error: {}", e))?;
+    let project_path = resolve_worktree_path(&db, &session_id, &realm_id)?;
+    drop(db);
     let repo = Repository::open(&project_path).map_err(|e| e.to_string())?;
 
     // 3C: Use author overrides if provided, otherwise fall back to repo config
@@ -591,9 +628,14 @@ pub fn git_commit(
 
 #[tauri::command]
 pub fn git_push(
-    project_path: String,
+    state: State<'_, AppState>,
+    session_id: String,
+    realm_id: String,
     remote: Option<String>,
 ) -> Result<GitOperationResult, String> {
+    let db = state.db.lock().map_err(|e| format!("DB lock error: {}", e))?;
+    let project_path = resolve_worktree_path(&db, &session_id, &realm_id)?;
+    drop(db);
     let repo = Repository::open(&project_path).map_err(|e| e.to_string())?;
     let remote_name = remote.as_deref().unwrap_or("origin");
 
@@ -623,9 +665,14 @@ pub fn git_push(
 
 #[tauri::command]
 pub fn git_pull(
-    project_path: String,
+    state: State<'_, AppState>,
+    session_id: String,
+    realm_id: String,
     remote: Option<String>,
 ) -> Result<GitOperationResult, String> {
+    let db = state.db.lock().map_err(|e| format!("DB lock error: {}", e))?;
+    let project_path = resolve_worktree_path(&db, &session_id, &realm_id)?;
+    drop(db);
     let repo = Repository::open(&project_path).map_err(|e| e.to_string())?;
 
     // Reject pull if repo is already in a merge/rebase state
@@ -759,10 +806,15 @@ pub fn git_pull(
 
 #[tauri::command]
 pub fn git_diff(
-    project_path: String,
+    state: State<'_, AppState>,
+    session_id: String,
+    realm_id: String,
     file_path: String,
     staged: bool,
 ) -> Result<GitDiff, String> {
+    let db = state.db.lock().map_err(|e| format!("DB lock error: {}", e))?;
+    let project_path = resolve_worktree_path(&db, &session_id, &realm_id)?;
+    drop(db);
     let repo = Repository::open(&project_path).map_err(|e| e.to_string())?;
 
     let mut diff_opts = DiffOptions::new();
@@ -827,7 +879,10 @@ pub fn git_diff(
 }
 
 #[tauri::command]
-pub fn git_open_file(project_path: String, file_path: String) -> Result<(), String> {
+pub fn git_open_file(state: State<'_, AppState>, session_id: String, realm_id: String, file_path: String) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| format!("DB lock error: {}", e))?;
+    let project_path = resolve_worktree_path(&db, &session_id, &realm_id)?;
+    drop(db);
     // 1F: Path traversal guard
     let full_path = safe_join(&project_path, &file_path)?;
     crate::platform::open_file(&full_path.to_string_lossy())
@@ -836,7 +891,10 @@ pub fn git_open_file(project_path: String, file_path: String) -> Result<(), Stri
 // ─── Branch Management Commands ─────────────────────────────────────
 
 #[tauri::command]
-pub fn git_list_branches(project_path: String) -> Result<Vec<GitBranch>, String> {
+pub fn git_list_branches(state: State<'_, AppState>, session_id: String, realm_id: String) -> Result<Vec<GitBranch>, String> {
+    let db = state.db.lock().map_err(|e| format!("DB lock error: {}", e))?;
+    let project_path = resolve_worktree_path(&db, &session_id, &realm_id)?;
+    drop(db);
     let repo = Repository::open(&project_path).map_err(|e| e.to_string())?;
     let mut branches = Vec::new();
 
@@ -942,10 +1000,15 @@ pub fn git_list_branches(project_path: String) -> Result<Vec<GitBranch>, String>
 
 #[tauri::command]
 pub fn git_create_branch(
-    project_path: String,
+    state: State<'_, AppState>,
+    session_id: String,
+    realm_id: String,
     name: String,
     checkout: bool,
 ) -> Result<GitOperationResult, String> {
+    let db = state.db.lock().map_err(|e| format!("DB lock error: {}", e))?;
+    let project_path = resolve_worktree_path(&db, &session_id, &realm_id)?;
+    drop(db);
     let repo = Repository::open(&project_path).map_err(|e| e.to_string())?;
 
     let head_commit = repo

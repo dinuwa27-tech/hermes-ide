@@ -4,12 +4,13 @@ import type { GitFile, GitDiff } from "../types/git";
 import "../styles/components/GitPanel.css";
 
 interface GitDiffViewProps {
-  projectPath: string;
+  sessionId: string;
+  realmId: string;
   file: GitFile;
   onClose: () => void;
 }
 
-export function GitDiffView({ projectPath, file, onClose }: GitDiffViewProps) {
+export function GitDiffView({ sessionId, realmId, file, onClose }: GitDiffViewProps) {
   const [diff, setDiff] = useState<GitDiff | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -21,11 +22,11 @@ export function GitDiffView({ projectPath, file, onClose }: GitDiffViewProps) {
     setLoading(true);
     setError(null);
     const staged = file.area === "staged";
-    gitDiff(projectPath, file.path, staged)
+    gitDiff(sessionId, realmId, file.path, staged)
       .then((d) => { if (!cancelled) { setDiff(d); setLoading(false); } })
       .catch((e) => { if (!cancelled) { setError(String(e)); setLoading(false); } });
     return () => { cancelled = true; };
-  }, [projectPath, file.path, file.area]);
+  }, [sessionId, realmId, file.path, file.area]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

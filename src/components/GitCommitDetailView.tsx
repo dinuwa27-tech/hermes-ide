@@ -7,7 +7,8 @@ import "../styles/components/GitPanel.css";
 // ─── Props ───────────────────────────────────────────────────────────
 
 interface GitCommitDetailViewProps {
-  projectPath: string;
+  sessionId: string;
+  realmId: string;
   commitHash: string;
   onClose: () => void;
 }

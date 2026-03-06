@@ -5,7 +5,8 @@ import type { ConflictContent, ConflictStrategy } from "../types/git";
 // ─── Props ───────────────────────────────────────────────────────────
 
 interface GitConflictViewerProps {
-  projectPath: string;
+  sessionId: string;
+  realmId: string;
   filePath: string;
   onResolve: (filePath: string, strategy: ConflictStrategy) => void;
   onClose: () => void;

@@ -96,7 +96,7 @@ export function filterEntries(entries: FileEntry[], query: string, showHidden: b
 
 // ─── File Explorer Hook (lazy-loading directory tree) ─────────────────
 
-export function useFileExplorer(projectPath: string | null) {
+export function useFileExplorer(sessionId: string | null, realmId: string | null) {
   const [cache, setCache] = useState<Map<string, FileEntry[]>>(new Map());
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
   const [loadingDirs, setLoadingDirs] = useState<Set<string>>(new Set());
@@ -112,19 +112,19 @@ export function useFileExplorer(projectPath: string | null) {
     return () => { mounted.current = false; };
   }, []);
 
-  // Clear stale state when projectPath changes
+  // Clear stale state when sessionId or realmId changes
   useEffect(() => {
     setCache(new Map());
     setExpandedDirs(new Set());
     setLoadingDirs(new Set());
     setError(null);
-  }, [projectPath]);
+  }, [sessionId, realmId]);
 
   const loadDirectory = useCallback(async (relativePath: string) => {
-    if (!projectPath) return;
+    if (!sessionId || !realmId) return;
     setLoadingDirs((prev) => new Set(prev).add(relativePath));
     try {
-      const entries = await listDirectory(projectPath, relativePath || undefined);
+      const entries = await listDirectory(sessionId, realmId, relativePath || undefined);
       if (!mounted.current) return;
       setCache((prev) => {
         const next = new Map(prev);
@@ -144,7 +144,7 @@ export function useFileExplorer(projectPath: string | null) {
         });
       }
     }
-  }, [projectPath]);
+  }, [sessionId, realmId]);
 
   const toggleDir = useCallback((relativePath: string) => {
     setExpandedDirs((prev) => {
