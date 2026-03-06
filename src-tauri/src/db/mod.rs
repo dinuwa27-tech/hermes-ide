@@ -129,6 +129,19 @@ pub struct CostDailyEntry {
     pub session_count: i64,
 }
 
+// ─── Session Worktrees ──────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionWorktreeRow {
+    pub id: String,
+    pub session_id: String,
+    pub realm_id: String,
+    pub worktree_path: String,
+    pub branch_name: Option<String>,
+    pub is_main_worktree: bool,
+    pub created_at: String,
+}
+
 impl Database {
     pub fn new(path: &Path) -> Result<Self, String> {
         let conn = Connection::open(path).map_err(|e| format!("Failed to open database: {}", e))?;
@@ -348,6 +361,20 @@ impl Database {
                 config_hash TEXT,
                 loaded_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
+
+            CREATE TABLE IF NOT EXISTS session_worktrees (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                realm_id TEXT NOT NULL,
+                worktree_path TEXT NOT NULL,
+                branch_name TEXT,
+                is_main_worktree INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(session_id, realm_id),
+                UNIQUE(worktree_path)
+            );
+            CREATE INDEX IF NOT EXISTS idx_sw_session ON session_worktrees(session_id);
+            CREATE INDEX IF NOT EXISTS idx_sw_realm ON session_worktrees(realm_id);
         ").map_err(|e| format!("Migration failed: {}", e))?;
 
         // Migrate existing projects → realms (one-time, idempotent)
@@ -1244,6 +1271,103 @@ impl Database {
         let mut entries = Vec::new();
         for row in rows { entries.push(row.map_err(|e| e.to_string())?); }
         Ok(entries)
+    }
+
+    // ─── Session Worktree Operations ─────────────────────────────
+
+    pub fn insert_session_worktree(
+        &self, id: &str, session_id: &str, realm_id: &str,
+        worktree_path: &str, branch_name: Option<&str>, is_main_worktree: bool,
+    ) -> Result<(), String> {
+        self.conn.execute(
+            "INSERT INTO session_worktrees (id, session_id, realm_id, worktree_path, branch_name, is_main_worktree)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![id, session_id, realm_id, worktree_path, branch_name, is_main_worktree as i32],
+        ).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn get_session_worktrees(&self, session_id: &str) -> Result<Vec<SessionWorktreeRow>, String> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, session_id, realm_id, worktree_path, branch_name, is_main_worktree, created_at
+             FROM session_worktrees WHERE session_id = ?1 ORDER BY created_at"
+        ).map_err(|e| e.to_string())?;
+
+        let rows = stmt.query_map(params![session_id], |row| {
+            let is_main: i32 = row.get(5)?;
+            Ok(SessionWorktreeRow {
+                id: row.get(0)?, session_id: row.get(1)?, realm_id: row.get(2)?,
+                worktree_path: row.get(3)?, branch_name: row.get(4)?,
+                is_main_worktree: is_main != 0, created_at: row.get(6)?,
+            })
+        }).map_err(|e| e.to_string())?;
+
+        let mut entries = Vec::new();
+        for row in rows { entries.push(row.map_err(|e| e.to_string())?); }
+        Ok(entries)
+    }
+
+    pub fn get_worktree_by_session_and_realm(
+        &self, session_id: &str, realm_id: &str,
+    ) -> Result<Option<SessionWorktreeRow>, String> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, session_id, realm_id, worktree_path, branch_name, is_main_worktree, created_at
+             FROM session_worktrees WHERE session_id = ?1 AND realm_id = ?2"
+        ).map_err(|e| e.to_string())?;
+
+        let result = stmt.query_row(params![session_id, realm_id], |row| {
+            let is_main: i32 = row.get(5)?;
+            Ok(SessionWorktreeRow {
+                id: row.get(0)?, session_id: row.get(1)?, realm_id: row.get(2)?,
+                worktree_path: row.get(3)?, branch_name: row.get(4)?,
+                is_main_worktree: is_main != 0, created_at: row.get(6)?,
+            })
+        }).ok();
+        Ok(result)
+    }
+
+    pub fn get_worktrees_for_realm(&self, realm_id: &str) -> Result<Vec<SessionWorktreeRow>, String> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, session_id, realm_id, worktree_path, branch_name, is_main_worktree, created_at
+             FROM session_worktrees WHERE realm_id = ?1 ORDER BY created_at"
+        ).map_err(|e| e.to_string())?;
+
+        let rows = stmt.query_map(params![realm_id], |row| {
+            let is_main: i32 = row.get(5)?;
+            Ok(SessionWorktreeRow {
+                id: row.get(0)?, session_id: row.get(1)?, realm_id: row.get(2)?,
+                worktree_path: row.get(3)?, branch_name: row.get(4)?,
+                is_main_worktree: is_main != 0, created_at: row.get(6)?,
+            })
+        }).map_err(|e| e.to_string())?;
+
+        let mut entries = Vec::new();
+        for row in rows { entries.push(row.map_err(|e| e.to_string())?); }
+        Ok(entries)
+    }
+
+    pub fn update_worktree_branch(&self, id: &str, branch_name: &str) -> Result<(), String> {
+        self.conn.execute(
+            "UPDATE session_worktrees SET branch_name = ?1 WHERE id = ?2",
+            params![branch_name, id],
+        ).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn delete_session_worktree(&self, id: &str) -> Result<(), String> {
+        self.conn.execute(
+            "DELETE FROM session_worktrees WHERE id = ?1",
+            params![id],
+        ).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn delete_worktrees_for_session(&self, session_id: &str) -> Result<(), String> {
+        self.conn.execute(
+            "DELETE FROM session_worktrees WHERE session_id = ?1",
+            params![session_id],
+        ).map_err(|e| e.to_string())?;
+        Ok(())
     }
 }
 

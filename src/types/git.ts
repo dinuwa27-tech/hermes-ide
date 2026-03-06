@@ -134,6 +134,40 @@ export interface SearchResponse {
 
 // ─── Merge Conflict Types ────────────────────────────────────────────
 
+// ─── Worktree Types ─────────────────────────────────────────────────
+
+export interface SessionWorktree {
+  id: string;
+  sessionId: string;
+  realmId: string;
+  worktreePath: string;
+  branchName: string | null;
+  isMainWorktree: boolean;
+  createdAt: string;
+}
+
+export interface WorktreeInfo {
+  sessionId: string;
+  sessionLabel: string;
+  branchName: string | null;
+  worktreePath: string;
+  isMainWorktree: boolean;
+}
+
+export interface BranchAvailability {
+  available: boolean;
+  usedBySession: string | null;
+  branchName: string;
+}
+
+export interface WorktreeCreateResult {
+  worktreePath: string;
+  branchName: string;
+  isMainWorktree: boolean;
+}
+
+// ─── Merge Conflict Types ────────────────────────────────────────────
+
 export type ConflictStrategy = "ours" | "theirs" | "manual";
 
 export interface MergeStatus {

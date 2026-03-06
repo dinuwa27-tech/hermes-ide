@@ -1,0 +1,48 @@
+/* ─── Worktree Indicator ───────────────────────────────────────────── */
+
+.worktree-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  line-height: 1.6;
+  max-width: 140px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.worktree-indicator-main {
+  background: var(--bg-2);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+}
+
+.worktree-indicator-linked {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border: 1px solid var(--accent-dim);
+}
+
+.worktree-indicator-active.worktree-indicator-main {
+  color: var(--text-1);
+  border-color: var(--border-light);
+}
+
+.worktree-indicator-active.worktree-indicator-linked {
+  border-color: var(--accent);
+}
+
+.worktree-indicator-icon {
+  flex-shrink: 0;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.worktree-indicator-branch {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
