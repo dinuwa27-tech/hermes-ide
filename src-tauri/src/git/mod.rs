@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 use crate::AppState;
 use crate::db::Database;
@@ -998,6 +998,116 @@ pub fn git_list_branches(state: State<'_, AppState>, session_id: String, realm_i
     Ok(branches)
 }
 
+/// List branches for a realm without requiring a session.
+/// Uses the realm's root path directly (not a worktree path).
+#[tauri::command]
+pub fn git_list_branches_for_realm(state: State<'_, AppState>, realm_id: String) -> Result<Vec<GitBranch>, String> {
+    let db = state.db.lock().map_err(|e| format!("DB lock error: {}", e))?;
+    let realm = db.get_realm(&realm_id)
+        .map_err(|e| format!("Failed to look up realm: {}", e))?
+        .ok_or_else(|| format!("Realm '{}' not found", realm_id))?;
+    let project_path = realm.path.clone();
+    drop(db);
+
+    let repo = Repository::open(&project_path).map_err(|e| e.to_string())?;
+    let mut branches = Vec::new();
+
+    let current_branch = repo
+        .head()
+        .ok()
+        .and_then(|h| h.shorthand().map(|s| s.to_string()));
+
+    // Local branches
+    let local_branches = repo
+        .branches(Some(BranchType::Local))
+        .map_err(|e| e.to_string())?;
+
+    for branch_result in local_branches {
+        let (branch, _) = branch_result.map_err(|e| e.to_string())?;
+        let name = branch
+            .name()
+            .map_err(|e| e.to_string())?
+            .unwrap_or("")
+            .to_string();
+
+        let is_current = current_branch.as_deref() == Some(&name);
+
+        let mut ahead = 0u32;
+        let mut behind = 0u32;
+        let mut upstream_name = None;
+
+        if let Ok(upstream) = branch.upstream() {
+            upstream_name = upstream.name().ok().flatten().map(|s| s.to_string());
+            if let (Some(local_ref), Some(upstream_ref)) = (
+                branch.get().name(),
+                upstream.get().name(),
+            ) {
+                if let (Ok(local_oid), Ok(remote_oid)) = (
+                    repo.refname_to_id(local_ref),
+                    repo.refname_to_id(upstream_ref),
+                ) {
+                    if let Ok((a, b)) = repo.graph_ahead_behind(local_oid, remote_oid) {
+                        ahead = a as u32;
+                        behind = b as u32;
+                    }
+                }
+            }
+        }
+
+        let last_commit_summary = branch
+            .get()
+            .peel_to_commit()
+            .ok()
+            .map(|c| c.summary().unwrap_or("").to_string());
+
+        branches.push(GitBranch {
+            name,
+            is_current,
+            is_remote: false,
+            upstream: upstream_name,
+            ahead,
+            behind,
+            last_commit_summary,
+        });
+    }
+
+    // Remote branches
+    let remote_branches = repo
+        .branches(Some(BranchType::Remote))
+        .map_err(|e| e.to_string())?;
+
+    for branch_result in remote_branches {
+        let (branch, _) = branch_result.map_err(|e| e.to_string())?;
+        let name = branch
+            .name()
+            .map_err(|e| e.to_string())?
+            .unwrap_or("")
+            .to_string();
+
+        if name.ends_with("/HEAD") {
+            continue;
+        }
+
+        let last_commit_summary = branch
+            .get()
+            .peel_to_commit()
+            .ok()
+            .map(|c| c.summary().unwrap_or("").to_string());
+
+        branches.push(GitBranch {
+            name,
+            is_current: false,
+            is_remote: true,
+            upstream: None,
+            ahead: 0,
+            behind: 0,
+            last_commit_summary,
+        });
+    }
+
+    Ok(branches)
+}
+
 #[tauri::command]
 pub fn git_create_branch(
     state: State<'_, AppState>,
@@ -1041,6 +1151,7 @@ pub fn git_create_branch(
 
 #[tauri::command]
 pub fn git_checkout_branch(
+    app: AppHandle,
     state: State<'_, AppState>,
     session_id: String,
     realm_id: String,
@@ -1096,6 +1207,7 @@ pub fn git_checkout_branch(
             git2::build::CheckoutBuilder::default().safe(),
         ))
         .map_err(|e| e.to_string())?;
+        let _ = app.emit(&format!("branch-changed-{}", session_id), &name);
         return Ok(GitOperationResult {
             success: true,
             message: format!("Switched to branch '{}'", name),
@@ -1132,6 +1244,7 @@ pub fn git_checkout_branch(
         ))
         .map_err(|e| e.to_string())?;
 
+        let _ = app.emit(&format!("branch-changed-{}", session_id), local_name);
         return Ok(GitOperationResult {
             success: true,
             message: format!(
@@ -2255,6 +2368,7 @@ pub fn search_project(
 
 #[tauri::command]
 pub fn git_create_worktree(
+    app: AppHandle,
     state: State<'_, AppState>,
     session_id: String,
     realm_id: String,
@@ -2285,12 +2399,16 @@ pub fn git_create_worktree(
     )?;
     drop(db);
 
-    // 4. Return result
+    // 4. Emit event for frontend
+    let _ = app.emit(&format!("worktree-created-{}", realm_id), &result);
+
+    // 5. Return result
     Ok(result)
 }
 
 #[tauri::command]
 pub fn git_remove_worktree(
+    app: AppHandle,
     state: State<'_, AppState>,
     session_id: String,
     realm_id: String,
@@ -2316,7 +2434,10 @@ pub fn git_remove_worktree(
     db.delete_session_worktree(&wt_id)?;
     drop(db);
 
-    // 4. Return result
+    // 4. Emit event for frontend
+    let _ = app.emit(&format!("worktree-removed-{}", realm_id), ());
+
+    // 5. Return result
     Ok(GitOperationResult {
         success: true,
         message: format!("Removed worktree at '{}'", wt_path),
