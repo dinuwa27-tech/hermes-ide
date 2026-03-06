@@ -113,11 +113,14 @@ export type ExecutionMode = "manual" | "assisted" | "autonomous";
 // ─── Session Creation ────────────────────────────────────────────────
 
 export interface CreateSessionOpts {
+  sessionId?: string;
   label?: string;
   workingDirectory?: string;
   restoreFromId?: string;
   aiProvider?: string;
   projectIds?: string[];
+  branchName?: string;
+  createNewBranch?: boolean;
 }
 
 // ─── Session Action (reducer) ────────────────────────────────────────

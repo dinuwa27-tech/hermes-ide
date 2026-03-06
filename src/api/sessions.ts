@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { SessionData, SessionHistoryEntry } from "../types/session";
 
 export function createSession(opts: {
+  sessionId: string | null;
   label: string | null;
   workingDirectory: string | null;
   color: string | null;
