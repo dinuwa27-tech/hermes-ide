@@ -1,0 +1,41 @@
+/* ─── Session Git Panel ────────────────────────────────────────────── */
+/* Per-session git panel — reuses git-* classes from GitPanel.css      */
+
+.session-git-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-1);
+  overflow: hidden;
+  flex: 1;
+}
+
+.session-git-panel-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.session-git-panel-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-0);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.session-git-panel-toolbar .git-panel-refresh {
+  margin-left: auto;
+}
+
+.session-git-panel-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
