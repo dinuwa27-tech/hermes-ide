@@ -29,9 +29,10 @@ interface StatusBarProps {
   updateDownloading?: boolean;
   updateProgress?: number;
   onShowUpdate?: () => void;
+  onCheckForUpdates?: () => void;
 }
 
-export function StatusBar({ onOpenShortcuts, updateAvailable, updateVersion, updateDownloading, updateProgress, onShowUpdate }: StatusBarProps) {
+export function StatusBar({ onOpenShortcuts, updateAvailable, updateVersion, updateDownloading, updateProgress, onShowUpdate, onCheckForUpdates }: StatusBarProps) {
   const active = useActiveSession();
   const sessions = useSessionList();
   const totalCost = useTotalCost();
@@ -160,9 +161,13 @@ export function StatusBar({ onOpenShortcuts, updateAvailable, updateVersion, upd
             <span className="status-bar-divider" />
           </>
         )}
-        <span className="status-bar-version" title={`HERMES-IDE v${__APP_VERSION__}`}>
+        <button
+          className="status-bar-version"
+          title="Check for updates"
+          onClick={onCheckForUpdates}
+        >
           v{__APP_VERSION__}
-        </span>
+        </button>
         <ThemePicker />
         <button
           className="status-bug-btn"

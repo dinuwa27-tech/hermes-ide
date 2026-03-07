@@ -367,6 +367,7 @@ function AppContent() {
         updateDownloading={updater.state.downloading}
         updateProgress={updater.state.progress}
         onShowUpdate={() => updater.manualCheck()}
+        onCheckForUpdates={() => updater.manualCheck()}
       />
 
       {ui.commandPaletteOpen && (
