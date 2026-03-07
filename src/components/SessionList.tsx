@@ -330,8 +330,6 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
       setNewGroupName("");
     } else if (actionId === "session.remove-group") {
       updateSessionGroup(sid, null).catch(console.error);
-    } else if (actionId === "session.duplicate") {
-      // Handled by parent via dispatch
     } else if (actionId === "session.close") {
       onClose(sid);
     } else if (actionId.startsWith("session.set-group.")) {
@@ -411,7 +409,7 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
     onViewChange(activeView === view ? null : view);
   }, [activeView, onViewChange]);
 
-  const renderSession = (session: SessionData, idx: number) => {
+  const renderSession = (session: SessionData) => {
     const isActive = session.id === activeSessionId;
     // Trigger inline rename when context menu "Rename..." is used
     const shouldTriggerRename = renameSessionId === session.id;
@@ -428,10 +426,10 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
           onClick={() => onSelect(session.id)}
           onContextMenu={(e) => handleContextMenu(e, session.id)}
         >
-          <div className="session-item-indicator">
-            <span className="session-color-dot" style={{ background: session.phase === "destroyed" ? "var(--text-3)" : session.color }} />
-            <span className="session-number">{idx < 9 ? idx + 1 : ""}</span>
-          </div>
+          <div
+            className="session-item-color-band"
+            style={{ background: session.phase === "destroyed" ? "var(--text-3)" : session.color }}
+          />
           <div className="session-item-info">
             <InlineNameEditor sessionId={session.id} label={session.label} triggerEdit={shouldTriggerRename} />
             <InlineDescriptionEditor sessionId={session.id} description={session.description} isActive={isActive} />
@@ -566,22 +564,6 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
     );
   };
 
-  // Pre-compute session index map for keyboard shortcuts (concurrent-mode safe)
-  const sessionIndexMap = useMemo(() => {
-    const map = new Map<string, number>();
-    let idx = 0;
-    for (const session of (grouped.get(null) || [])) {
-      map.set(session.id, idx++);
-    }
-    for (const group of allGroups) {
-      if (!collapsedGroups.has(group)) {
-        for (const session of (grouped.get(group) || [])) {
-          map.set(session.id, idx++);
-        }
-      }
-    }
-    return map;
-  }, [grouped, allGroups, collapsedGroups]);
 
   return (
     <div className="session-list">
@@ -598,6 +580,7 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
           const groupSessions = grouped.get(group) || [];
           const isCollapsed = collapsedGroups.has(group);
           const groupCost = groupSessions.reduce((sum, s) => sum + sessionCost(s), 0);
+          const groupColor = groupSessions.find((s) => s.phase !== "destroyed")?.color || groupSessions[0]?.color || "var(--accent)";
 
           return (
             <div key={group} className="project-section">
@@ -608,6 +591,7 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
                 onClick={() => toggleGroup(group)}
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleGroup(group); } }}
               >
+                <div className="project-header-color-band" style={{ background: groupColor }} />
                 <div className="project-header-left">
                   <span className="project-header-chevron">{isCollapsed ? "▸" : "▾"}</span>
                   <svg className="project-header-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
@@ -630,7 +614,7 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
               {!isCollapsed && (
                 <div className="project-sessions">
                   {groupSessions.map((session) => {
-                    return renderSession(session, sessionIndexMap.get(session.id) ?? 0);
+                    return renderSession(session);
                   })}
                 </div>
               )}
@@ -645,7 +629,7 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
           </div>
         )}
         {(grouped.get(null) || []).map((session) => {
-          return renderSession(session, sessionIndexMap.get(session.id) ?? 0);
+          return renderSession(session);
         })}
       </div>
 

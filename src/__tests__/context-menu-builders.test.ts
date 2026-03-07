@@ -125,9 +125,9 @@ describe("buildSessionMenuItems", () => {
     expect(findItem(items, "session.close")).toBeDefined();
   });
 
-  it("includes Duplicate Session", () => {
+  it("does not include Duplicate Session", () => {
     const items = buildSessionMenuItems(session, []);
-    expect(findItem(items, "session.duplicate")).toBeDefined();
+    expect(findItem(items, "session.duplicate")).toBeUndefined();
   });
 });
 

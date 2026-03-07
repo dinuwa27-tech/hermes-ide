@@ -82,8 +82,6 @@ export function buildSessionMenuItems(
   }
 
   items.push(separator());
-  items.push(menuItem("session.duplicate", "Duplicate Session"));
-  items.push(separator());
   items.push(menuItem("session.close", "Close Session"));
 
   return items;
