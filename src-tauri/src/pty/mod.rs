@@ -1546,8 +1546,6 @@ impl OutputAnalyzer {
         let has_visible = text_check.chars().any(|c| !c.is_control() && !c.is_whitespace());
         if has_visible {
             if !self.is_busy {
-                let preview: String = text_check.chars().filter(|c| !c.is_control()).take(80).collect();
-                eprintln!("[BUSY] Transitioning to Busy. Preview: {:?}", preview);
                 self.is_busy = true;
                 self.pending_phase = Some(SessionPhase::Busy);
             }
@@ -1721,9 +1719,6 @@ impl OutputAnalyzer {
                 self.memory_facts.push(fact);
             }
         }
-        if let Some(ref hint) = analysis.phase_hint {
-            eprintln!("[PHASE-HINT] {:?} from line analysis", hint);
-        }
         if let Some(hint) = analysis.phase_hint {
             match hint {
                 PhaseHint::PromptDetected => {
@@ -1848,21 +1843,14 @@ impl OutputAnalyzer {
         if !self.is_busy { return; }
 
         // Check if any of the last few lines look like a recognized prompt
-        let last_lines: Vec<&str> = self.stripped_buffer.lines().rev().take(5).collect();
-        eprintln!("[SILENCE] Checking last 5 lines:");
-        for (i, l) in last_lines.iter().enumerate() {
-            eprintln!("[SILENCE]   {}: {:?}", i, l.trim());
-        }
-        let has_prompt = last_lines.iter().any(|l| {
+        let has_prompt = self.stripped_buffer.lines().rev().take(5).any(|l| {
             let t = l.trim();
             if t.is_empty() { return false; }
-            let is_p = if let Some(idx) = self.active_provider_idx {
+            if let Some(idx) = self.active_provider_idx {
                 self.registry.adapters[idx].is_prompt(t)
             } else {
                 is_shell_prompt(t)
-            };
-            if is_p { eprintln!("[SILENCE]   -> prompt detected: {:?}", t); }
-            is_p
+            }
         });
 
         if self.node_builder.is_some() {
@@ -1871,13 +1859,10 @@ impl OutputAnalyzer {
         self.is_busy = false;
 
         if has_prompt {
-            eprintln!("[SILENCE] → Idle (prompt found)");
             self.pending_phase = Some(SessionPhase::Idle);
         } else if self.detected_agent.is_some() {
-            eprintln!("[SILENCE] → NeedsInput (agent active, no prompt)");
             self.pending_phase = Some(SessionPhase::NeedsInput);
         } else {
-            eprintln!("[SILENCE] → Idle (no agent)");
             self.pending_phase = Some(SessionPhase::Idle);
         }
     }
@@ -2948,9 +2933,11 @@ pub fn close_session(app: AppHandle, state: State<'_, AppState>, session_id: Str
     let mut mgr = state.pty_manager.lock().map_err(|e| e.to_string())?;
 
     if let Some(mut pty_session) = mgr.sessions.remove(&session_id) {
-        // Kill the child shell process and wait to reap it (prevents zombies)
+        // Kill the child shell process — don't block on wait() since the
+        // process may be hung. Spawn a reaper thread instead.
         pty_session.child.kill().ok();
-        pty_session.child.wait().ok();
+        let mut child = pty_session.child;
+        thread::spawn(move || { child.wait().ok(); });
 
         // Save snapshot and persist token data
         if let Ok(analyzer) = pty_session.analyzer.lock() {

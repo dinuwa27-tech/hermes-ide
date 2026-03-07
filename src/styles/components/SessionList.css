@@ -79,12 +79,21 @@
 }
 
 .session-item-color-band-empty {
-  background: var(--border) !important;
-  opacity: 0.3;
+  background: transparent !important;
+  border: 1px dashed var(--text-3);
+  opacity: 0.35;
+}
+
+.session-item:hover .session-item-color-band-empty,
+.session-item-active .session-item-color-band-empty {
+  opacity: 0.6;
+  border-color: var(--text-2);
 }
 
 .session-item-color-band-empty:hover {
-  opacity: 0.6;
+  opacity: 1;
+  border-color: var(--accent);
+  border-style: solid;
 }
 
 /* ─── Color Picker Popover ───────────────────────── */
@@ -448,12 +457,20 @@
 }
 
 .project-header-color-band-empty {
-  background: var(--border) !important;
-  opacity: 0.3;
+  background: transparent !important;
+  border: 1px dashed var(--text-3);
+  opacity: 0.35;
+}
+
+.project-header:hover .project-header-color-band-empty {
+  opacity: 0.6;
+  border-color: var(--text-2);
 }
 
 .project-header-color-band-empty:hover {
-  opacity: 0.6;
+  opacity: 1;
+  border-color: var(--accent);
+  border-style: solid;
 }
 
 .project-header:hover { background: var(--bg-2); }

@@ -749,9 +749,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       await apiCloseSession(id);
     } catch (err) {
       console.error("Failed to close session:", err);
+    } finally {
+      // Always clean up — if the API succeeded the session-removed event
+      // handles removal; if it failed we allow retrying. Also force-remove
+      // zombie sessions that the backend no longer tracks.
       closingSessionIds.current.delete(id);
+      // Give the backend event a moment to arrive, then force-remove if
+      // the session is still in the list (handles zombie/dead sessions).
+      setTimeout(() => {
+        dispatch({ type: "REMOVE_SESSION", id });
+      }, 500);
     }
-  }, []);
+  }, [dispatch]);
 
   const defaultModeRef = useRef(state.defaultMode);
   defaultModeRef.current = state.defaultMode;
