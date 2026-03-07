@@ -141,6 +141,7 @@ pub struct SessionMetrics {
 pub struct Session {
     pub id: String,
     pub label: String,
+    pub description: String,
     pub color: String,
     pub group: Option<String>,
     pub phase: SessionPhase,
@@ -161,6 +162,7 @@ pub struct Session {
 pub struct SessionUpdate {
     pub id: String,
     pub label: String,
+    pub description: String,
     pub color: String,
     pub group: Option<String>,
     pub phase: String,
@@ -182,6 +184,7 @@ impl From<&Session> for SessionUpdate {
         SessionUpdate {
             id: s.id.clone(),
             label: s.label.clone(),
+            description: s.description.clone(),
             color: s.color.clone(),
             group: s.group.clone(),
             phase: s.phase.as_str().to_string(),
@@ -2273,6 +2276,7 @@ pub fn create_session(
     let session = Session {
         id: session_id.clone(),
         label: session_label,
+        description: String::new(),
         color: session_color,
         group: None,
         phase: SessionPhase::Creating,
@@ -2842,6 +2846,17 @@ pub fn update_session_label(app: AppHandle, state: State<'_, AppState>, session_
     let session = mgr.sessions.get(&session_id).ok_or_else(|| format!("Session {} not found", session_id))?;
     let mut s = session.session.lock().map_err(|e| e.to_string())?;
     s.label = label;
+    let update = SessionUpdate::from(&*s);
+    let _ = app.emit("session-updated", &update);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn update_session_description(app: AppHandle, state: State<'_, AppState>, session_id: String, description: String) -> Result<(), String> {
+    let mgr = state.pty_manager.lock().map_err(|e| e.to_string())?;
+    let session = mgr.sessions.get(&session_id).ok_or_else(|| format!("Session {} not found", session_id))?;
+    let mut s = session.session.lock().map_err(|e| e.to_string())?;
+    s.description = description;
     let update = SessionUpdate::from(&*s);
     let _ = app.emit("session-updated", &update);
     Ok(())

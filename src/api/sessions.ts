@@ -37,6 +37,10 @@ export function updateSessionLabel(sessionId: string, label: string): Promise<vo
   return invoke("update_session_label", { sessionId, label });
 }
 
+export function updateSessionDescription(sessionId: string, description: string): Promise<void> {
+  return invoke("update_session_description", { sessionId, description });
+}
+
 export function updateSessionGroup(sessionId: string, group: string | null): Promise<void> {
   return invoke("update_session_group", { sessionId, group });
 }

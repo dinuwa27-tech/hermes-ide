@@ -66,6 +66,7 @@ export interface SessionMetrics {
 export interface SessionData {
   id: string;
   label: string;
+  description: string;
   color: string;
   group: string | null;
   phase: string;
@@ -115,6 +116,8 @@ export type ExecutionMode = "manual" | "assisted" | "autonomous";
 export interface CreateSessionOpts {
   sessionId?: string;
   label?: string;
+  description?: string;
+  group?: string;
   workingDirectory?: string;
   restoreFromId?: string;
   aiProvider?: string;

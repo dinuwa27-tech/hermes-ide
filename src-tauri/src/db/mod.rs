@@ -389,6 +389,11 @@ impl Database {
             FROM projects;
         ").map_err(|e| format!("Project→Realm migration failed: {}", e))?;
 
+        // Add description column to sessions (idempotent)
+        let _ = self.conn.execute_batch(
+            "ALTER TABLE sessions ADD COLUMN description TEXT NOT NULL DEFAULT '';"
+        );
+
         Ok(())
     }
 
@@ -396,9 +401,9 @@ impl Database {
 
     pub fn create_session_v2(&self, s: &SessionUpdate) -> Result<(), String> {
         self.conn.execute(
-            "INSERT OR REPLACE INTO sessions (id, label, color, group_name, phase, working_directory, shell, workspace_paths, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![s.id, s.label, s.color, s.group, s.phase, s.working_directory, s.shell,
+            "INSERT OR REPLACE INTO sessions (id, label, description, color, group_name, phase, working_directory, shell, workspace_paths, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![s.id, s.label, s.description, s.color, s.group, s.phase, s.working_directory, s.shell,
                     serde_json::to_string(&s.workspace_paths).unwrap_or_default(), s.created_at],
         ).map_err(|e| e.to_string())?;
         Ok(())

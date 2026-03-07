@@ -161,6 +161,7 @@ pub fn run() {
             pty::get_session_metadata,
             pty::get_session_output,
             pty::update_session_label,
+            pty::update_session_description,
             pty::update_session_color,
             pty::add_workspace_path,
             pty::update_session_group,
