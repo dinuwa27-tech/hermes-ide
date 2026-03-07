@@ -400,3 +400,63 @@
   color: var(--accent);
 }
 
+/* Auto-approve checkbox */
+
+.session-creator-auto-approve {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-top: var(--space-2);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.session-creator-auto-approve:hover {
+  border-color: var(--border-light);
+}
+
+.session-creator-auto-approve input[type="checkbox"] {
+  margin-top: 2px;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+
+.session-creator-auto-approve-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.session-creator-auto-approve-label {
+  font-size: var(--text-md);
+  font-weight: 500;
+  color: var(--text-1);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.session-creator-auto-approve-label code {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  background: var(--bg-3);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.session-creator-auto-approve-desc {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  line-height: 1.4;
+}
+
+.session-creator-summary-flag {
+  color: var(--text-3);
+  font-size: var(--text-xs);
+}
+

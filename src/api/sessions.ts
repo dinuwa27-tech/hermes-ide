@@ -9,6 +9,7 @@ export function createSession(opts: {
   workspacePaths: string[] | null;
   aiProvider: string | null;
   realmIds: string[] | null;
+  autoApprove?: boolean;
 }): Promise<SessionData> {
   return invoke<SessionData>("create_session", opts);
 }

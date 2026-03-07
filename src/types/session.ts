@@ -122,6 +122,7 @@ export interface CreateSessionOpts {
   workingDirectory?: string;
   restoreFromId?: string;
   aiProvider?: string;
+  autoApprove?: boolean;
   projectIds?: string[];
   branchName?: string;
   createNewBranch?: boolean;

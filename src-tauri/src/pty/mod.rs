@@ -153,6 +153,7 @@ pub struct Session {
     pub detected_agent: Option<AgentInfo>,
     pub metrics: SessionMetrics,
     pub ai_provider: Option<String>,
+    pub auto_approve: bool,
     pub context_injected: bool,
     pub has_initial_context: bool,
     pub last_nudged_version: i64,
@@ -2013,14 +2014,26 @@ struct PtySession {
     child: Box<dyn portable_pty::Child + Send>,
 }
 
-fn ai_launch_command(provider: &str) -> Option<&str> {
-    match provider {
-        "claude" => Some("claude"),
-        "aider" => Some("aider"),
-        "codex" => Some("codex"),
-        "gemini" => Some("gemini"),
-        "copilot" => Some("gh copilot"),
-        _ => None,
+fn ai_launch_command(provider: &str, auto_approve: bool) -> Option<String> {
+    let base = match provider {
+        "claude" => "claude",
+        "aider" => "aider",
+        "codex" => "codex",
+        "gemini" => "gemini",
+        "copilot" => return Some("gh copilot".to_string()),
+        _ => return None,
+    };
+    if auto_approve {
+        let flag = match provider {
+            "claude" => " --dangerously-skip-permissions",
+            "aider" => " --yes",
+            "codex" => " --full-auto",
+            "gemini" => " --yolo",
+            _ => "",
+        };
+        Some(format!("{}{}", base, flag))
+    } else {
+        Some(base.to_string())
     }
 }
 
@@ -2229,6 +2242,7 @@ pub fn create_session(
     workspace_paths: Option<Vec<String>>,
     ai_provider: Option<String>,
     realm_ids: Option<Vec<String>>,
+    auto_approve: Option<bool>,
 ) -> Result<SessionUpdate, String> {
     let session_id = session_id.unwrap_or_else(|| Uuid::new_v4().to_string());
     let shell = state.db.lock().map_err(|e| e.to_string())
@@ -2295,6 +2309,7 @@ pub fn create_session(
             latency_p50_ms: None, latency_p95_ms: None, latency_samples: Vec::new(), token_history: Vec::new(),
         },
         ai_provider: ai_provider.clone(),
+        auto_approve: auto_approve.unwrap_or(false),
         context_injected: false,
         has_initial_context: realm_ids.as_ref().map_or(false, |ids| !ids.is_empty()),
         last_nudged_version: 0,
@@ -2513,17 +2528,17 @@ pub fn create_session(
                         if a.pending_ai_launch {
                             a.pending_ai_launch = false;
                             let launch_info = session_clone.lock().ok()
-                                .map(|s| (s.ai_provider.clone(), s.has_initial_context));
-                            if let Some((Some(ref provider), has_context)) = launch_info {
+                                .map(|s| (s.ai_provider.clone(), s.has_initial_context, s.auto_approve));
+                            if let Some((Some(ref provider), has_context, auto_approve)) = launch_info {
                                 // Only launch known/allowed AI providers (reject unknown values)
-                                if let Some(launch_cmd) = ai_launch_command(provider) {
+                                if let Some(launch_cmd) = ai_launch_command(provider, auto_approve) {
                                 // For Claude/Gemini: pass context instruction as CLI argument
                                 // so it's processed immediately without PTY injection timing issues
                                 let supports_cli_prompt = provider == "claude" || provider == "gemini";
                                 let cmd = if has_context && supports_cli_prompt {
                                     format!("{} \"Read the file at $HERMES_CONTEXT for project context about the attached workspaces.\"", launch_cmd)
                                 } else {
-                                    launch_cmd.to_string()
+                                    launch_cmd
                                 };
                                 if let Ok(mut w) = writer_for_reader.lock() {
                                     let _ = w.write_all(format!("{}\r", cmd).as_bytes());

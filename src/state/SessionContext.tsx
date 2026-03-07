@@ -703,6 +703,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         workspacePaths: null,
         aiProvider: opts?.aiProvider || null,
         realmIds: opts?.projectIds || null,
+        autoApprove: opts?.autoApprove ?? false,
       });
       await createTerminal(session.id, session.color);
 

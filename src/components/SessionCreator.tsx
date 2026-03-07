@@ -18,6 +18,13 @@ const AI_PROVIDERS = [
   { id: "copilot", label: "Copilot", description: "GitHub Copilot CLI", enabled: true },
 ] as const;
 
+const AUTO_APPROVE_FLAGS: Record<string, { flag: string; description: string }> = {
+  claude: { flag: "--dangerously-skip-permissions", description: "The AI agent can read, write, and execute without asking for confirmation." },
+  gemini: { flag: "--yolo", description: "The AI agent can execute shell commands and write files without permission prompts." },
+  aider: { flag: "--yes", description: "The AI agent will apply all suggested changes without asking for confirmation." },
+  codex: { flag: "--full-auto", description: "The AI agent runs in fully autonomous mode without confirmation prompts." },
+};
+
 // Internal step identifiers (not displayed to user)
 type Step = "projects" | "branch" | "ai" | "confirm";
 
@@ -51,6 +58,9 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
 
   // Color selection state — no color by default
   const [selectedColor, setSelectedColor] = useState<string>("");
+
+  // Auto-approve (skip permissions) state
+  const [autoApprove, setAutoApprove] = useState(false);
 
   // Branch selection state
   const [isGitRepo, setIsGitRepo] = useState(false);
@@ -231,6 +241,7 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
         group: selectedGroup || undefined,
         color: selectedColor,
         aiProvider: aiProvider || undefined,
+        autoApprove: autoApprove || undefined,
         projectIds: selectedProjectIds.length > 0 ? selectedProjectIds : undefined,
         workingDirectory: firstProjectPath,
         branchName: branchName || undefined,
@@ -249,6 +260,7 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
   const selectProviderAndAdvance = (idx: number) => {
     const id = enabledProviders[idx] ?? null;
     setAiProvider(id as string | null);
+    if (!id || !AUTO_APPROVE_FLAGS[id]) setAutoApprove(false);
     setStep("confirm");
   };
 
@@ -473,12 +485,30 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
               })}
               <button
                 className={`session-creator-provider-card ${aiProvider === null ? "selected" : ""} ${highlightedProviderIndex === enabledProviders.length - 1 ? "selected" : ""}`}
-                onClick={() => { setAiProvider(null); setHighlightedProviderIndex(enabledProviders.length - 1); }}
+                onClick={() => { setAiProvider(null); setAutoApprove(false); setHighlightedProviderIndex(enabledProviders.length - 1); }}
               >
                 <span className="session-creator-provider-name">Shell Only</span>
                 <span className="session-creator-provider-desc">No AI agent</span>
               </button>
             </div>
+            {aiProvider && AUTO_APPROVE_FLAGS[aiProvider] && (
+              <label className="session-creator-auto-approve">
+                <input
+                  type="checkbox"
+                  checked={autoApprove}
+                  onChange={(e) => setAutoApprove(e.target.checked)}
+                />
+                <div className="session-creator-auto-approve-text">
+                  <span className="session-creator-auto-approve-label">
+                    Auto-approve all actions
+                    <code>{AUTO_APPROVE_FLAGS[aiProvider].flag}</code>
+                  </span>
+                  <span className="session-creator-auto-approve-desc">
+                    {AUTO_APPROVE_FLAGS[aiProvider].description}
+                  </span>
+                </div>
+              </label>
+            )}
             <div className="session-creator-hints">
               <span><kbd>&uarr;&darr;</kbd><kbd>&larr;&rarr;</kbd> navigate</span>
               <span><kbd>Enter</kbd> select</span>
@@ -518,6 +548,9 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
                 <span className="session-creator-summary-label">AI Engine:</span>
                 <span className="session-creator-summary-value">
                   {aiProvider ? AI_PROVIDERS.find((p) => p.id === aiProvider)?.label ?? aiProvider : "Shell Only"}
+                  {autoApprove && aiProvider && AUTO_APPROVE_FLAGS[aiProvider] && (
+                    <span className="session-creator-summary-flag"> (auto-approve)</span>
+                  )}
                 </span>
               </div>
             </div>
