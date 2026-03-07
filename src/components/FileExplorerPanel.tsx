@@ -160,7 +160,7 @@ interface ProjectInfo {
 export function FileExplorerPanel({ visible }: FileExplorerPanelProps) {
   const { state } = useSession();
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
-  const [showHidden, setShowHidden] = useState(false);
+  const [showHidden, setShowHidden] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
 
   const contextEntryRef = useRef<FileEntry | null>(null);
