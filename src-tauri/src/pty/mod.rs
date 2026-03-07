@@ -23,6 +23,7 @@ pub enum SessionPhase {
     LaunchingAgent,
     Idle,
     Busy,
+    NeedsInput,
     Error(String),
     Closing,
     Destroyed,
@@ -37,6 +38,7 @@ impl SessionPhase {
             SessionPhase::LaunchingAgent => "launching_agent",
             SessionPhase::Idle => "idle",
             SessionPhase::Busy => "busy",
+            SessionPhase::NeedsInput => "needs_input",
             SessionPhase::Error(_) => "error",
             SessionPhase::Closing => "closing",
             SessionPhase::Destroyed => "destroyed",
@@ -44,7 +46,7 @@ impl SessionPhase {
     }
 
     pub fn accepts_input(&self) -> bool {
-        matches!(self, SessionPhase::Idle | SessionPhase::Busy | SessionPhase::Initializing | SessionPhase::ShellReady | SessionPhase::LaunchingAgent)
+        matches!(self, SessionPhase::Idle | SessionPhase::Busy | SessionPhase::NeedsInput | SessionPhase::Initializing | SessionPhase::ShellReady | SessionPhase::LaunchingAgent)
     }
 }
 
@@ -227,6 +229,7 @@ struct TokenUpdate {
 enum PhaseHint {
     PromptDetected,
     WorkStarted,
+    InputNeeded,
 }
 
 trait ProviderAdapter: Send + Sync {
@@ -234,6 +237,42 @@ trait ProviderAdapter: Send + Sync {
     fn analyze_line(&self, line: &str) -> LineAnalysis;
     fn is_prompt(&self, line: &str) -> bool;
     fn known_actions(&self) -> Vec<ActionTemplate>;
+}
+
+/// Detects whether a line is an interactive confirmation/permission prompt
+/// that requires user input (Y/n, allow/deny, etc.).
+fn is_input_needed_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    if trimmed.is_empty() { return false; }
+    let lower = trimmed.to_lowercase();
+
+    // Common patterns: (Y/n), (y/N), (y/n), [Y/n], [y/N], Yes/No
+    if lower.contains("(y/n)") || lower.contains("(y/n)")
+        || lower.contains("[y/n]") || lower.contains("[y/n]")
+        || lower.contains("(yes/no)") || lower.contains("[yes/no]")
+    {
+        return true;
+    }
+
+    // Claude Code permission prompts: lines starting with "? " that ask a question
+    // e.g. "? Allow Bash(...)" or "? Do you want to proceed?"
+    if trimmed.starts_with("? ") && trimmed.len() > 3 {
+        return true;
+    }
+
+    // Codex approval pattern: "✔ You approved" / "✗ You did not approve" — these
+    // are RESULTS, not prompts. But "Allow" / "Deny" selection lines are prompts.
+
+    // Generic "allow" / "deny" / "approve" choice patterns (word boundaries)
+    let has_action_word = lower.split(|c: char| !c.is_alphabetic()).any(|w| w == "allow" || w == "deny" || w == "approve");
+    if has_action_word
+        && (trimmed.ends_with('?') || lower.contains("(y") || lower.contains("[y") || lower.contains("(n") || lower.contains("[n"))
+        && trimmed.len() < 120
+    {
+        return true;
+    }
+
+    false
 }
 
 // ─── Claude Code Adapter ────────────────────────────────────────────
@@ -528,8 +567,12 @@ impl ProviderAdapter for ClaudeCodeAdapter {
             }
         }
 
+        // Input-needed detection (must come before prompt detection to take priority)
+        if is_input_needed_line(line) {
+            result.phase_hint = Some(PhaseHint::InputNeeded);
+        }
         // Prompt detection
-        if self.is_prompt(line) {
+        else if self.is_prompt(line) {
             result.phase_hint = Some(PhaseHint::PromptDetected);
         }
 
@@ -768,8 +811,12 @@ impl ProviderAdapter for AiderAdapter {
             }
         }
 
+        // Input-needed detection (before prompt detection)
+        if is_input_needed_line(line) {
+            result.phase_hint = Some(PhaseHint::InputNeeded);
+        }
         // Prompt detection
-        if self.is_prompt(line) {
+        else if self.is_prompt(line) {
             result.phase_hint = Some(PhaseHint::PromptDetected);
         }
 
@@ -872,12 +919,12 @@ impl ProviderAdapter for CopilotAdapter {
             });
         }
 
-        // Selection prompt: "? What kind of command" or "? Select an option"
-        if line.starts_with("? ") && line.len() < 100 {
-            result.phase_hint = Some(PhaseHint::PromptDetected);
+        // Input-needed: selection prompts or confirmation prompts
+        if (line.starts_with("? ") && line.len() < 100) || is_input_needed_line(line) {
+            result.phase_hint = Some(PhaseHint::InputNeeded);
         }
-
-        if self.is_prompt(line) {
+        // Regular prompt detection
+        else if self.is_prompt(line) {
             result.phase_hint = Some(PhaseHint::PromptDetected);
         }
 
@@ -1038,8 +1085,12 @@ impl ProviderAdapter for CodexAdapter {
             });
         }
 
+        // Input-needed detection (before prompt detection)
+        if is_input_needed_line(line) {
+            result.phase_hint = Some(PhaseHint::InputNeeded);
+        }
         // Prompt detection
-        if self.is_prompt(line) {
+        else if self.is_prompt(line) {
             result.phase_hint = Some(PhaseHint::PromptDetected);
         }
 
@@ -1176,8 +1227,12 @@ impl ProviderAdapter for GeminiAdapter {
             }
         }
 
+        // Input-needed detection (before prompt detection)
+        if is_input_needed_line(line) {
+            result.phase_hint = Some(PhaseHint::InputNeeded);
+        }
         // Prompt detection
-        if self.is_prompt(line) {
+        else if self.is_prompt(line) {
             result.phase_hint = Some(PhaseHint::PromptDetected);
         }
 
@@ -1656,6 +1711,14 @@ impl OutputAnalyzer {
                     }
                     self.is_busy = true;
                     self.pending_phase = Some(SessionPhase::Busy);
+                }
+                PhaseHint::InputNeeded => {
+                    // Agent is asking for confirmation or input
+                    if self.node_builder.is_some() {
+                        self.finalize_node(None);
+                    }
+                    self.is_busy = false;
+                    self.pending_phase = Some(SessionPhase::NeedsInput);
                 }
             }
         }
@@ -3230,4 +3293,144 @@ pub fn get_project_context(path: String) -> Result<ProjectContextInfo, String> {
         languages,
         frameworks,
     })
+}
+
+// ─── Tests ─────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── is_input_needed_line ──
+
+    #[test]
+    fn detects_claude_permission_prompt() {
+        assert!(is_input_needed_line("? Allow Bash(npm run build)"));
+        assert!(is_input_needed_line("? Allow Read(src/main.rs)"));
+        assert!(is_input_needed_line("? Do you want to proceed?"));
+        assert!(is_input_needed_line("? Allow Write to package.json"));
+    }
+
+    #[test]
+    fn detects_yn_prompts() {
+        assert!(is_input_needed_line("Overwrite file? (y/n)"));
+        assert!(is_input_needed_line("Continue? (Y/n)"));
+        assert!(is_input_needed_line("Are you sure? [y/N]"));
+        assert!(is_input_needed_line("Proceed? (Yes/No)"));
+        assert!(is_input_needed_line("Apply changes? [yes/no]"));
+    }
+
+    #[test]
+    fn detects_allow_deny_prompts() {
+        assert!(is_input_needed_line("Allow access to /tmp? (yes/no)"));
+        assert!(is_input_needed_line("[Allow] or [Deny]?"));
+        assert!(is_input_needed_line("Approve this action? (y/n)"));
+    }
+
+    #[test]
+    fn rejects_normal_output() {
+        assert!(!is_input_needed_line(""));
+        assert!(!is_input_needed_line("> "));
+        assert!(!is_input_needed_line("$ "));
+        assert!(!is_input_needed_line("Hello world"));
+        assert!(!is_input_needed_line("Building project..."));
+        assert!(!is_input_needed_line("const x = 42;"));
+        // Don't match bare "?" in long code lines
+        assert!(!is_input_needed_line("const isAllowed = user.role === 'admin' ? true : false;"));
+    }
+
+    #[test]
+    fn rejects_short_question_mark_lines() {
+        // "? " alone with nothing after should not match (too short)
+        assert!(!is_input_needed_line("? "));
+        assert!(!is_input_needed_line("?"));
+    }
+
+    // ── is_shell_prompt ──
+
+    #[test]
+    fn detects_standard_shell_prompts() {
+        assert!(is_shell_prompt("$ "));
+        assert!(is_shell_prompt("user@host:~$ "));
+        assert!(is_shell_prompt("% "));
+        assert!(is_shell_prompt("~ ❯"));
+    }
+
+    #[test]
+    fn rejects_non_prompts() {
+        assert!(!is_shell_prompt("Hello world"));
+        assert!(!is_shell_prompt("const x = 42;"));
+        assert!(!is_shell_prompt(""));
+    }
+
+    // ── SessionPhase ──
+
+    #[test]
+    fn needs_input_phase_accepts_input() {
+        assert!(SessionPhase::NeedsInput.accepts_input());
+        assert!(SessionPhase::Idle.accepts_input());
+        assert!(SessionPhase::Busy.accepts_input());
+        assert!(!SessionPhase::Closing.accepts_input());
+        assert!(!SessionPhase::Destroyed.accepts_input());
+    }
+
+    #[test]
+    fn needs_input_phase_str() {
+        assert_eq!(SessionPhase::NeedsInput.as_str(), "needs_input");
+        assert_eq!(SessionPhase::Idle.as_str(), "idle");
+        assert_eq!(SessionPhase::Busy.as_str(), "busy");
+    }
+
+    // ── PhaseHint in apply_analysis ──
+
+    #[test]
+    fn analyzer_transitions_to_needs_input() {
+        let mut analyzer = OutputAnalyzer::new();
+        analyzer.shell_ready = true; // Simulate past shell ready
+
+        let analysis = LineAnalysis {
+            token_update: None,
+            tool_call: None,
+            action: None,
+            phase_hint: Some(PhaseHint::InputNeeded),
+            memory_fact: None,
+        };
+        analyzer.apply_analysis(analysis);
+        assert!(!analyzer.is_busy);
+        assert!(matches!(analyzer.pending_phase, Some(SessionPhase::NeedsInput)));
+    }
+
+    #[test]
+    fn analyzer_transitions_to_idle_on_prompt() {
+        let mut analyzer = OutputAnalyzer::new();
+        analyzer.shell_ready = true;
+
+        let analysis = LineAnalysis {
+            token_update: None,
+            tool_call: None,
+            action: None,
+            phase_hint: Some(PhaseHint::PromptDetected),
+            memory_fact: None,
+        };
+        analyzer.apply_analysis(analysis);
+        assert!(!analyzer.is_busy);
+        assert!(matches!(analyzer.pending_phase, Some(SessionPhase::Idle)));
+    }
+
+    #[test]
+    fn analyzer_transitions_to_busy_on_work() {
+        let mut analyzer = OutputAnalyzer::new();
+        analyzer.shell_ready = true;
+
+        let analysis = LineAnalysis {
+            token_update: None,
+            tool_call: None,
+            action: None,
+            phase_hint: Some(PhaseHint::WorkStarted),
+            memory_fact: None,
+        };
+        analyzer.apply_analysis(analysis);
+        assert!(analyzer.is_busy);
+        assert!(matches!(analyzer.pending_phase, Some(SessionPhase::Busy)));
+    }
 }

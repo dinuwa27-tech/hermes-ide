@@ -109,6 +109,7 @@ export function StatusBar({ onOpenShortcuts, updateAvailable, updateVersion, upd
               {active.detected_agent.name}
               {active.detected_agent.model && <span className="status-bar-model"> ({active.detected_agent.model})</span>}
               {active.phase === "busy" && <span className="status-bar-busy">working</span>}
+              {active.phase === "needs_input" && <span className="status-bar-needs-input">needs input</span>}
             </span>
           </>
         )}

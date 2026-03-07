@@ -576,7 +576,7 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
                 <span className="session-agent-tag">{session.detected_agent.name}</span>
               )}
               <span className="session-phase-tag" data-phase={session.phase}>
-                {session.phase === "busy" ? "working" : session.phase === "shell_ready" ? "ready" : session.phase === "creating" ? "starting" : session.phase}
+                {session.phase === "busy" ? "working" : session.phase === "needs_input" ? "needs input" : session.phase === "shell_ready" ? "ready" : session.phase === "creating" ? "starting" : session.phase}
               </span>
               <span className="session-age">{timeAgo(session.last_activity_at)}</span>
             </div>
