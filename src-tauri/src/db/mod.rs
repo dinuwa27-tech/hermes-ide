@@ -980,6 +980,36 @@ impl Database {
         Ok(())
     }
 
+    // ─── Session Label ─────────────────────────────────────────
+
+    pub fn update_session_label(&self, session_id: &str, label: &str) -> Result<(), String> {
+        self.conn.execute(
+            "UPDATE sessions SET label = ?1 WHERE id = ?2",
+            params![label, session_id],
+        ).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    // ─── Session Description ─────────────────────────────────────
+
+    pub fn update_session_description(&self, session_id: &str, description: &str) -> Result<(), String> {
+        self.conn.execute(
+            "UPDATE sessions SET description = ?1 WHERE id = ?2",
+            params![description, session_id],
+        ).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    // ─── Session Color ───────────────────────────────────────────
+
+    pub fn update_session_color(&self, session_id: &str, color: &str) -> Result<(), String> {
+        self.conn.execute(
+            "UPDATE sessions SET color = ?1 WHERE id = ?2",
+            params![color, session_id],
+        ).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     // ─── Execution Nodes Count ───────────────────────────────────
 
     pub fn get_execution_nodes_count(&self, session_id: &str) -> Result<i64, String> {

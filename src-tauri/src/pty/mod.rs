@@ -2844,10 +2844,14 @@ pub fn get_session_detail(state: State<'_, AppState>, session_id: String) -> Res
 pub fn update_session_label(app: AppHandle, state: State<'_, AppState>, session_id: String, label: String) -> Result<(), String> {
     let mgr = state.pty_manager.lock().map_err(|e| e.to_string())?;
     let session = mgr.sessions.get(&session_id).ok_or_else(|| format!("Session {} not found", session_id))?;
-    let mut s = session.session.lock().map_err(|e| e.to_string())?;
-    s.label = label;
-    let update = SessionUpdate::from(&*s);
-    let _ = app.emit("session-updated", &update);
+    {
+        let mut s = session.session.lock().map_err(|e| e.to_string())?;
+        s.label = label.clone();
+        let update = SessionUpdate::from(&*s);
+        let _ = app.emit("session-updated", &update);
+    }
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.update_session_label(&session_id, &label)?;
     Ok(())
 }
 
@@ -2855,10 +2859,14 @@ pub fn update_session_label(app: AppHandle, state: State<'_, AppState>, session_
 pub fn update_session_description(app: AppHandle, state: State<'_, AppState>, session_id: String, description: String) -> Result<(), String> {
     let mgr = state.pty_manager.lock().map_err(|e| e.to_string())?;
     let session = mgr.sessions.get(&session_id).ok_or_else(|| format!("Session {} not found", session_id))?;
-    let mut s = session.session.lock().map_err(|e| e.to_string())?;
-    s.description = description;
-    let update = SessionUpdate::from(&*s);
-    let _ = app.emit("session-updated", &update);
+    {
+        let mut s = session.session.lock().map_err(|e| e.to_string())?;
+        s.description = description.clone();
+        let update = SessionUpdate::from(&*s);
+        let _ = app.emit("session-updated", &update);
+    }
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.update_session_description(&session_id, &description)?;
     Ok(())
 }
 
@@ -2866,10 +2874,14 @@ pub fn update_session_description(app: AppHandle, state: State<'_, AppState>, se
 pub fn update_session_color(app: AppHandle, state: State<'_, AppState>, session_id: String, color: String) -> Result<(), String> {
     let mgr = state.pty_manager.lock().map_err(|e| e.to_string())?;
     let session = mgr.sessions.get(&session_id).ok_or_else(|| format!("Session {} not found", session_id))?;
-    let mut s = session.session.lock().map_err(|e| e.to_string())?;
-    s.color = color;
-    let update = SessionUpdate::from(&*s);
-    let _ = app.emit("session-updated", &update);
+    {
+        let mut s = session.session.lock().map_err(|e| e.to_string())?;
+        s.color = color.clone();
+        let update = SessionUpdate::from(&*s);
+        let _ = app.emit("session-updated", &update);
+    }
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.update_session_color(&session_id, &color)?;
     Ok(())
 }
 
