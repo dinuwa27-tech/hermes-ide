@@ -757,7 +757,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       // Give the backend event a moment to arrive, then force-remove if
       // the session is still in the list (handles zombie/dead sessions).
       setTimeout(() => {
-        dispatch({ type: "REMOVE_SESSION", id });
+        dispatch({ type: "SESSION_REMOVED", id });
       }, 500);
     }
   }, [dispatch]);

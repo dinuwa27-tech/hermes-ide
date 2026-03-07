@@ -423,6 +423,44 @@
   margin-top: 2px;
 }
 
+.project-section-drop-target {
+  outline: 2px dashed var(--accent, #a78bfa);
+  outline-offset: -2px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent, #a78bfa) 12%, transparent);
+  transition: background 0.15s ease, outline-color 0.15s ease;
+}
+
+.project-section-drop-target .project-header {
+  color: var(--accent, #a78bfa);
+}
+
+.ungrouped-section {
+  min-height: 4px;
+  transition: min-height 0.15s ease, background 0.15s ease;
+}
+
+.ungrouped-section-drag-active {
+  min-height: 40px;
+  border: 1.5px dashed var(--border, #27272a);
+  border-radius: var(--radius);
+  margin: 4px 6px;
+  padding: 4px;
+}
+
+.ungrouped-section-drop-target {
+  outline: 2px dashed var(--accent, #a78bfa);
+  outline-offset: -2px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent, #a78bfa) 12%, transparent);
+  min-height: 40px;
+  border-color: transparent;
+}
+
+.ungrouped-section-drop-target .ungrouped-divider {
+  color: var(--accent, #a78bfa);
+}
+
 .project-header {
   padding: 6px 8px 6px 0;
   cursor: pointer;
@@ -848,38 +886,18 @@
 
 /* ─── Inline Input Overlay (rename / new group) ──────── */
 
-.session-inline-input-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 120px;
+.session-list-new-project-input {
+  padding: 0 8px;
 }
 
-.session-inline-input {
-  background: var(--bg-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 8px;
-  min-width: 200px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  animation: paletteIn 0.1s ease-out;
-}
-
-.session-inline-input input {
+.session-list-new-project-input input {
   width: 100%;
   background: var(--bg-0);
-  border: 1px solid var(--border);
+  border: 1px solid var(--accent);
   border-radius: var(--radius-sm);
   color: var(--text-0);
-  font-size: var(--text-md);
-  padding: 4px 8px;
+  font-size: var(--text-sm);
+  padding: 5px 8px;
   outline: none;
   font-family: var(--font-ui);
-}
-
-.session-inline-input input:focus {
-  border-color: var(--accent);
 }

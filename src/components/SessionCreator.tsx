@@ -31,9 +31,11 @@ type Step = "projects" | "branch" | "ai" | "confirm";
 interface SessionCreatorProps {
   onClose: () => void;
   onCreate: (opts: CreateSessionOpts) => Promise<void>;
+  /** Pre-select a project group when creating from a project's "+" button */
+  defaultGroup?: string;
 }
 
-export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
+export function SessionCreator({ onClose, onCreate, defaultGroup }: SessionCreatorProps) {
   const [step, setStep] = useState<Step>("projects");
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
   const [aiProvider, setAiProvider] = useState<string | null>(null);
@@ -52,7 +54,7 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
   const labelRef = useRef<HTMLInputElement>(null);
 
   // Project (group) assignment state
-  const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<string | null>(defaultGroup ?? null);
   const [newProjectName, setNewProjectName] = useState("");
   const [showNewProjectInput, setShowNewProjectInput] = useState(false);
 
@@ -116,9 +118,13 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
           if (groupSession) colors[g] = groupSession.color;
         }
         setGroupColors(colors);
+        // Pre-select color for defaultGroup
+        if (defaultGroup && colors[defaultGroup]) {
+          setSelectedColor(colors[defaultGroup]);
+        }
       })
       .catch((err) => console.warn("[SessionCreator] Failed to load sessions:", err));
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (step === "projects") searchRef.current?.focus();

@@ -55,7 +55,7 @@ function AppContent() {
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [costDashboardOpen, setCostDashboardOpen] = useState(false);
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
-  const [sessionCreatorOpen, setSessionCreatorOpen] = useState(false);
+  const [sessionCreatorOpen, setSessionCreatorOpen] = useState<false | { group?: string }>(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const pendingSplit = useRef<{ paneId: string; direction: SplitDirection } | null>(null);
   const updater = useAutoUpdater();
@@ -225,7 +225,7 @@ function AppContent() {
   // ── Native menu bar event bridge ──
   useNativeMenuEvents({
     dispatch,
-    createSession: () => setSessionCreatorOpen(true),
+    createSession: () => setSessionCreatorOpen({}),
     createSessionDirect,
     requestCloseSession,
     activeSessionId: state.activeSessionId,
@@ -288,7 +288,7 @@ function AppContent() {
             ]}
             activeTabId={!ui.sessionListCollapsed ? "sessions" : null}
             onTabClick={() => dispatch({ type: "TOGGLE_SIDEBAR" })}
-            topAction={{ icon: PlusIcon, label: `New Session (${fmt("{mod}N")})`, onClick: () => setSessionCreatorOpen(true) }}
+            topAction={{ icon: PlusIcon, label: `New Session (${fmt("{mod}N")})`, onClick: () => setSessionCreatorOpen({}) }}
             bottomAction={{ icon: SettingsIcon, label: "Settings", onClick: () => setSettingsOpen("general") }}
           />
         )}
@@ -299,7 +299,7 @@ function AppContent() {
             activeSessionId={state.activeSessionId}
             onSelect={setActive}
             onClose={requestCloseSession}
-            onNewSession={() => setSessionCreatorOpen(true)}
+            onNewSession={(group) => setSessionCreatorOpen({ group })}
             activeView={
               ui.searchPanelOpen ? "search" :
               ui.fileExplorerOpen ? "files" :
@@ -332,7 +332,7 @@ function AppContent() {
               ) : (
                 <EmptyState
                   recentSessions={state.recentSessions}
-                  onNew={() => setSessionCreatorOpen(true)}
+                  onNew={() => setSessionCreatorOpen({})}
                   onRestore={(entry, restoreScrollback) => createSession({ label: entry.label, workingDirectory: entry.working_directory, restoreFromId: restoreScrollback ? entry.id : undefined })}
                 />
               )}
@@ -376,7 +376,7 @@ function AppContent() {
           onClose={() => dispatch({ type: "TOGGLE_PALETTE" })}
           sessions={sessions}
           onSelectSession={setActive}
-          onNewSession={() => setSessionCreatorOpen(true)}
+          onNewSession={() => setSessionCreatorOpen({})}
           onToggleContext={() => dispatch({ type: "TOGGLE_CONTEXT" })}
           onToggleSessions={() => dispatch({ type: "TOGGLE_SIDEBAR" })}
           onOpenSettings={(tab) => setSettingsOpen(tab || "general")}
@@ -418,6 +418,7 @@ function AppContent() {
 
       {sessionCreatorOpen && (
         <SessionCreator
+          defaultGroup={sessionCreatorOpen.group}
           onClose={() => {
             setSessionCreatorOpen(false);
             pendingSplit.current = null;

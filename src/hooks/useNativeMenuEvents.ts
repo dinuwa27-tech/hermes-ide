@@ -31,7 +31,7 @@ interface MenuEventHandlers {
   setSettingsOpen: (v: string | null) => void;
   setShortcutsOpen: (v: boolean | ((prev: boolean) => boolean)) => void;
   setCostDashboardOpen: (v: boolean | ((prev: boolean) => boolean)) => void;
-  setSessionCreatorOpen: (v: boolean) => void;
+  setSessionCreatorOpen: (v: false | { group?: string }) => void;
   copyContextToClipboard: () => void;
   pendingSplit: React.MutableRefObject<{ paneId: string; direction: string } | null>;
   onCheckForUpdates: () => void;
@@ -113,14 +113,14 @@ export function useNativeMenuEvents(handlers: MenuEventHandlers): void {
           dispatch({ type: "CLOSE_PALETTE" });
           if (focusedPaneId) {
             pendingSplit.current = { paneId: focusedPaneId, direction: "horizontal" };
-            setSessionCreatorOpen(true);
+            setSessionCreatorOpen({});
           }
           break;
         case "view.split-vertical":
           dispatch({ type: "CLOSE_PALETTE" });
           if (focusedPaneId) {
             pendingSplit.current = { paneId: focusedPaneId, direction: "vertical" };
-            setSessionCreatorOpen(true);
+            setSessionCreatorOpen({});
           }
           break;
         case "view.flow-mode":

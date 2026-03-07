@@ -2,7 +2,10 @@ import "../styles/components/SessionList.css";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { SessionData } from "../state/SessionContext";
 import { updateSessionGroup, updateSessionLabel, updateSessionDescription, updateSessionColor } from "../api/sessions";
-import { encodeSessionDrag, setDraggedSession } from "./SplitPane";
+import { encodeSessionDrag, setDraggedSession, getDraggedSession } from "./SplitPane";
+// Note: HTML5 drag events don't fire in Tauri (dragDropEnabled: true intercepts them).
+// We use getCurrentWebview().onDragDropEvent() with position-based hit testing instead.
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useContextMenu, buildSessionMenuItems, buildEmptyAreaMenuItems } from "../hooks/useContextMenu";
 import { fmt } from "../utils/platform";
 import { useSessionGitSummary } from "../hooks/useSessionGitSummary";
@@ -20,7 +23,7 @@ interface SessionListProps {
   activeSessionId: string | null;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
-  onNewSession?: () => void;
+  onNewSession?: (group?: string) => void;
   /** Currently active sub-view panel for the active session */
   activeView: SessionView;
   onViewChange: (view: SessionView) => void;
@@ -386,6 +389,8 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
   const [renameSessionId, setRenameSessionId] = useState<string | null>(null);
   const [newGroupSessionId, setNewGroupSessionId] = useState<string | null>(null);
   const [newGroupName, setNewGroupName] = useState("");
+  // Empty projects that don't have sessions yet
+  const [emptyProjects, setEmptyProjects] = useState<string[]>([]);
   // Color picker — can target a session OR a project group
   const [colorPickerSessionId, setColorPickerSessionId] = useState<string | null>(null);
   const [colorPickerGroup, setColorPickerGroup] = useState<string | null>(null);
@@ -410,8 +415,23 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
     for (const [key, list] of map) {
       map.set(key, sortSessions(list));
     }
+    // Include empty projects (no sessions yet)
+    for (const ep of emptyProjects) {
+      if (!map.has(ep)) {
+        map.set(ep, []);
+      }
+    }
     const groups = Array.from(map.keys()).filter((g): g is string => g !== null).sort();
     return { grouped: map, allGroups: groups };
+  }, [sessions, emptyProjects]);
+
+  // Clean up empty project entries once they get sessions
+  useEffect(() => {
+    setEmptyProjects((prev) => {
+      const sessionGroups = new Set(sessions.map((s) => s.group).filter(Boolean));
+      const filtered = prev.filter((ep) => !sessionGroups.has(ep));
+      return filtered.length !== prev.length ? filtered : prev;
+    });
   }, [sessions]);
 
   const toggleGroup = useCallback((group: string) => {
@@ -426,13 +446,26 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
   const handleRenameProject = useCallback((oldName: string, newName: string) => {
     // Rename a project = move all sessions from the old group to the new group
     const sessionsInGroup = sessions.filter((s) => s.group === oldName);
-    for (const s of sessionsInGroup) {
-      updateSessionGroup(s.id, newName).catch(console.error);
+    if (sessionsInGroup.length === 0) {
+      // Empty project — just rename in our local list
+      setEmptyProjects((prev) => prev.map((p) => p === oldName ? newName : p));
+    } else {
+      for (const s of sessionsInGroup) {
+        updateSessionGroup(s.id, newName).catch(console.error);
+      }
     }
   }, [sessions]);
 
+  // Store colors for empty projects (no sessions to hold the color)
+  const [emptyProjectColors, setEmptyProjectColors] = useState<Record<string, string>>({});
+
   const handleProjectColorChange = useCallback((group: string, color: string) => {
     const sessionsInGroup = sessions.filter((s) => s.group === group);
+    if (sessionsInGroup.length === 0) {
+      // Empty project — store color locally
+      setEmptyProjectColors((prev) => ({ ...prev, [group]: color }));
+      return;
+    }
     const count = sessionsInGroup.length;
     if (count > 1) {
       const msg = `Apply this color to all ${count} sessions in "${group}"?`;
@@ -531,6 +564,108 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
     e.dataTransfer.setDragImage(ghost, 0, 0);
     requestAnimationFrame(() => ghost.remove());
   }, []);
+
+  // Keep a ref to sessions so the Tauri event listener can read current data
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
+
+  // Drag-and-drop between projects — uses Tauri native drag events
+  // (HTML5 drag events don't fire because dragDropEnabled: true in tauri.conf.json)
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [isDraggingSession, setIsDraggingSession] = useState(false);
+  const projectRefsMap = useRef<Map<string, HTMLElement>>(new Map());
+  const ungroupedRef = useRef<HTMLDivElement>(null);
+
+  const setProjectRef = useCallback((group: string, el: HTMLElement | null) => {
+    if (el) projectRefsMap.current.set(group, el);
+    else projectRefsMap.current.delete(group);
+  }, []);
+
+  // Tauri native drag-drop listener for project reordering
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    let capturedSessionId: string | null = null;
+
+    getCurrentWebview().onDragDropEvent((event) => {
+      if (cancelled) return;
+      const { type } = event.payload;
+
+      // Only handle session drags (not file drags)
+      if (type === "enter") {
+        capturedSessionId = getDraggedSession();
+        if (!capturedSessionId || event.payload.paths.length > 0) {
+          capturedSessionId = null;
+          return;
+        }
+        setIsDraggingSession(true);
+      }
+
+      if (!capturedSessionId) return;
+
+      if (type === "leave") {
+        capturedSessionId = null;
+        setDropTarget(null);
+        setIsDraggingSession(false);
+        return;
+      }
+
+      const dpr = window.devicePixelRatio || 1;
+      const x = event.payload.position.x / dpr;
+      const y = event.payload.position.y / dpr;
+
+      if (type === "over") {
+        // Hit-test against project sections
+        let found: string | null = null;
+        for (const [group, el] of projectRefsMap.current) {
+          const rect = el.getBoundingClientRect();
+          if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+            found = group;
+            break;
+          }
+        }
+        // Hit-test ungrouped area
+        if (!found && ungroupedRef.current) {
+          const rect = ungroupedRef.current.getBoundingClientRect();
+          if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+            found = "__ungrouped__";
+          }
+        }
+        setDropTarget(found);
+      } else if (type === "drop") {
+        // Hit-test to find drop target
+        let targetGroup: string | null | undefined = undefined;
+        for (const [group, el] of projectRefsMap.current) {
+          const rect = el.getBoundingClientRect();
+          if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+            targetGroup = group;
+            break;
+          }
+        }
+        if (targetGroup === undefined && ungroupedRef.current) {
+          const rect = ungroupedRef.current.getBoundingClientRect();
+          if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+            targetGroup = null; // ungrouped
+          }
+        }
+        setDropTarget(null);
+        setIsDraggingSession(false);
+
+        if (targetGroup !== undefined && capturedSessionId) {
+          const session = sessionsRef.current.find((s) => s.id === capturedSessionId);
+          if (session && (session.group || null) !== targetGroup) {
+            handleMoveToProject(capturedSessionId, targetGroup!);
+          }
+        }
+        capturedSessionId = null;
+      }
+    }).then((fn) => { if (!cancelled) unlisten = fn; });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [handleMoveToProject]);
 
   const toggleView = useCallback((view: "git" | "files" | "search") => {
     onViewChange(activeView === view ? null : view);
@@ -718,10 +853,14 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
           const groupSessions = grouped.get(group) || [];
           const isCollapsed = collapsedGroups.has(group);
           const groupCost = groupSessions.reduce((sum, s) => sum + sessionCost(s), 0);
-          const groupColor = groupSessions.find((s) => s.phase !== "destroyed" && s.color)?.color || groupSessions.find((s) => s.color)?.color || "";
+          const groupColor = groupSessions.find((s) => s.phase !== "destroyed" && s.color)?.color || groupSessions.find((s) => s.color)?.color || emptyProjectColors[group] || "";
 
           return (
-            <div key={group} className="project-section">
+            <div
+              key={group}
+              ref={(el) => setProjectRef(group, el)}
+              className={`project-section${dropTarget === group ? " project-section-drop-target" : ""}`}
+            >
               <div
                 className="project-header"
                 role="button"
@@ -755,7 +894,7 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
                   )}
                   <button
                     className="project-header-add-btn"
-                    onClick={(e) => { e.stopPropagation(); onNewSession?.(); }}
+                    onClick={(e) => { e.stopPropagation(); onNewSession?.(group); }}
                     title="New session in this project"
                   >+</button>
                 </div>
@@ -780,33 +919,25 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
         })}
 
         {/* Ungrouped sessions at bottom */}
-        {(grouped.get(null) || []).length > 0 && allGroups.length > 0 && (
-          <div className="ungrouped-divider">
-            <span>Ungrouped</span>
-          </div>
-        )}
-        {(grouped.get(null) || []).map((session) => {
-          return renderSession(session);
-        })}
-      </div>
-
-      {/* Sidebar footer: New Project button */}
-      <div className="session-list-footer">
-        <button
-          className="session-list-new-project-btn"
-          onClick={() => { setNewGroupSessionId("__global__"); setNewGroupName(""); }}
+        <div
+          ref={ungroupedRef}
+          className={`ungrouped-section${dropTarget === "__ungrouped__" ? " ungrouped-section-drop-target" : ""}${isDraggingSession && allGroups.length > 0 ? " ungrouped-section-drag-active" : ""}`}
         >
-          <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="12" height="12">
-            <path d="M2 5C2 3.9 2.9 3 4 3H7L9 5H14C15.1 5 16 5.9 16 7V13C16 14.1 15.1 15 14 15H4C2.9 15 2 14.1 2 13V5Z" />
-          </svg>
-          New Project
-        </button>
+          {((grouped.get(null) || []).length > 0 || (isDraggingSession && allGroups.length > 0)) && (
+            <div className="ungrouped-divider">
+              <span>{dropTarget === "__ungrouped__" ? "Drop here to remove from project" : "Ungrouped"}</span>
+            </div>
+          )}
+          {(grouped.get(null) || []).map((session) => {
+            return renderSession(session);
+          })}
+        </div>
       </div>
 
-      {/* Inline new group input */}
-      {newGroupSessionId && (
-        <div className="session-inline-input-overlay" onClick={() => setNewGroupSessionId(null)}>
-          <div className="session-inline-input" onClick={(e) => e.stopPropagation()}>
+      {/* Sidebar footer: New Project button + inline input */}
+      <div className="session-list-footer">
+        {newGroupSessionId ? (
+          <div className="session-list-new-project-input">
             <input
               autoFocus
               placeholder="Project name..."
@@ -814,19 +945,39 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
               onChange={(e) => setNewGroupName(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && newGroupName.trim()) {
-                  if (newGroupSessionId !== "__global__") {
-                    updateSessionGroup(newGroupSessionId, newGroupName.trim()).catch(console.error);
+                  const name = newGroupName.trim();
+                  if (newGroupSessionId === "__global__") {
+                    // Create an empty project (no session to assign)
+                    setEmptyProjects((prev) => prev.includes(name) ? prev : [...prev, name]);
+                  } else {
+                    updateSessionGroup(newGroupSessionId, name).catch(console.error);
                   }
-                  // If __global__, we just create the project name — it will appear
-                  // when a session is assigned to it. The name is now in the groups list.
                   setNewGroupSessionId(null);
                 }
                 if (e.key === "Escape") setNewGroupSessionId(null);
               }}
+              onBlur={() => {
+                // On blur, also create the project if name is filled
+                if (newGroupName.trim() && newGroupSessionId === "__global__") {
+                  const name = newGroupName.trim();
+                  setEmptyProjects((prev) => prev.includes(name) ? prev : [...prev, name]);
+                }
+                setNewGroupSessionId(null);
+              }}
             />
           </div>
-        </div>
-      )}
+        ) : (
+          <button
+            className="session-list-new-project-btn"
+            onClick={() => { setNewGroupSessionId("__global__"); setNewGroupName(""); }}
+          >
+            <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="12" height="12">
+              <path d="M2 5C2 3.9 2.9 3 4 3H7L9 5H14C15.1 5 16 5.9 16 7V13C16 14.1 15.1 15 14 15H4C2.9 15 2 14.1 2 13V5Z" />
+            </svg>
+            New Project
+          </button>
+        )}
+      </div>
     </div>
   );
 }
