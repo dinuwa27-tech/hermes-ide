@@ -7,8 +7,78 @@ mod pty;
 mod realm;
 mod workspace;
 
+use std::collections::HashSet;
 use std::sync::Mutex;
 use tauri::Manager;
+
+/// Clean up worktrees whose sessions no longer exist.
+///
+/// Called once during app startup. For each `session_worktrees` record whose
+/// session is missing from the `sessions` table, we remove the git worktree
+/// from disk (if it is a linked worktree) and delete the DB record. Finally,
+/// we run `git worktree prune` on every repo that had stale entries.
+fn cleanup_stale_worktrees(database: &db::Database) {
+    let all_worktrees = match database.get_all_session_worktrees() {
+        Ok(wts) => wts,
+        Err(e) => {
+            log::warn!("Startup worktree cleanup: failed to list worktrees: {}", e);
+            return;
+        }
+    };
+
+    let mut repos_to_prune: HashSet<String> = HashSet::new();
+
+    for wt in &all_worktrees {
+        // Check whether the owning session still exists
+        let session_exists = database
+            .session_exists(&wt.session_id)
+            .unwrap_or(true); // default to true (keep) on error
+
+        if session_exists {
+            continue;
+        }
+
+        log::info!(
+            "Startup worktree cleanup: removing stale worktree '{}' (session '{}' no longer exists)",
+            wt.worktree_path, wt.session_id
+        );
+
+        // Only remove linked worktrees from disk, not main worktrees
+        if !wt.is_main_worktree {
+            if let Ok(Some(realm)) = database.get_realm(&wt.realm_id) {
+                if let Err(e) = git::worktree::remove_worktree(
+                    &realm.path,
+                    &wt.session_id,
+                    &wt.worktree_path,
+                ) {
+                    log::warn!(
+                        "Startup worktree cleanup: failed to remove worktree '{}': {}",
+                        wt.worktree_path, e
+                    );
+                }
+                repos_to_prune.insert(realm.path.clone());
+            }
+        }
+
+        // Delete the DB record regardless
+        if let Err(e) = database.delete_session_worktree(&wt.id) {
+            log::warn!(
+                "Startup worktree cleanup: failed to delete DB record '{}': {}",
+                wt.id, e
+            );
+        }
+    }
+
+    // Run git worktree prune on each affected repo
+    for repo_path in &repos_to_prune {
+        if let Err(e) = git::worktree::cleanup_stale_worktrees(repo_path) {
+            log::warn!(
+                "Startup worktree cleanup: git worktree prune failed for '{}': {}",
+                repo_path, e
+            );
+        }
+    }
+}
 
 pub struct AppState {
     pub db: Mutex<db::Database>,
@@ -42,6 +112,9 @@ pub fn run() {
             }
             let database = db::Database::new(&db_path)
                 .map_err(|e| format!("Failed to initialize database: {}", e))?;
+
+            // Clean up stale worktrees from previous sessions that no longer exist
+            cleanup_stale_worktrees(&database);
 
             let mut sys = sysinfo::System::new();
             sys.refresh_all(); // baseline for CPU delta computation
@@ -160,6 +233,7 @@ pub fn run() {
             git::git_open_file,
             // Git branch management
             git::git_list_branches,
+            git::git_list_branches_for_realm,
             git::git_create_branch,
             git::git_checkout_branch,
             git::git_delete_branch,
@@ -183,6 +257,12 @@ pub fn run() {
             git::list_directory,
             // Project search
             git::search_project,
+            // Git worktree management
+            git::git_create_worktree,
+            git::git_remove_worktree,
+            git::git_list_worktrees,
+            git::git_check_branch_available,
+            git::git_session_worktree_info,
             // Menu
             menu::show_context_menu,
             menu::update_menu_state,

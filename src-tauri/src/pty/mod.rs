@@ -2219,6 +2219,7 @@ fn get_working_directory() -> String {
 pub fn create_session(
     app: AppHandle,
     state: State<'_, AppState>,
+    session_id: Option<String>,
     label: Option<String>,
     working_directory: Option<String>,
     color: Option<String>,
@@ -2226,14 +2227,40 @@ pub fn create_session(
     ai_provider: Option<String>,
     realm_ids: Option<Vec<String>>,
 ) -> Result<SessionUpdate, String> {
-    let session_id = Uuid::new_v4().to_string();
+    let session_id = session_id.unwrap_or_else(|| Uuid::new_v4().to_string());
     let shell = state.db.lock().map_err(|e| e.to_string())
         .and_then(|db| db.get_setting("default_shell"))
         .ok()
         .flatten()
         .filter(|s| !s.is_empty())
         .unwrap_or_else(detect_shell);
-    let cwd = working_directory.unwrap_or_else(get_working_directory);
+    let original_cwd = working_directory.unwrap_or_else(get_working_directory);
+
+    // If this session has a linked worktree, use its path as the working directory.
+    // The worktree row may have been inserted before create_session is called
+    // (e.g. the frontend pre-generated the session_id and created the worktree first).
+    let cwd = if let Ok(db) = state.db.lock() {
+        if let Ok(worktrees) = db.get_session_worktrees(&session_id) {
+            if let Some(primary) = worktrees.first() {
+                let wt = std::path::Path::new(&primary.worktree_path);
+                if wt.is_dir() {
+                    primary.worktree_path.clone()
+                } else {
+                    log::warn!(
+                        "Worktree directory '{}' does not exist for session {}; falling back to '{}'",
+                        primary.worktree_path, session_id, original_cwd
+                    );
+                    original_cwd
+                }
+            } else {
+                original_cwd
+            }
+        } else {
+            original_cwd
+        }
+    } else {
+        original_cwd
+    };
 
     let mut mgr = state.pty_manager.lock().map_err(|e| e.to_string())?;
     mgr.session_counter += 1;
@@ -2748,6 +2775,45 @@ pub fn close_session(app: AppHandle, state: State<'_, AppState>, session_id: Str
         // Clean up session-scoped pins (project-scoped pins survive)
         if let Ok(db) = state.db.lock() {
             let _ = db.cleanup_session_pins(&session_id);
+        }
+
+        // Clean up linked worktrees for this session
+        if let Ok(db) = state.db.lock() {
+            match db.get_session_worktrees(&session_id) {
+                Ok(worktrees) => {
+                    for wt in &worktrees {
+                        if wt.is_main_worktree {
+                            continue; // Don't remove the main worktree
+                        }
+                        // Look up realm path to run git worktree remove
+                        if let Ok(Some(realm)) = db.get_realm(&wt.realm_id) {
+                            if let Err(e) = crate::git::worktree::remove_worktree(
+                                &realm.path,
+                                &session_id,
+                                &wt.worktree_path,
+                            ) {
+                                log::warn!(
+                                    "Failed to remove worktree '{}' for session '{}': {}",
+                                    wt.worktree_path, session_id, e
+                                );
+                            }
+                        }
+                    }
+                    // Delete all worktree DB records for this session
+                    if let Err(e) = db.delete_worktrees_for_session(&session_id) {
+                        log::warn!(
+                            "Failed to delete worktree records for session '{}': {}",
+                            session_id, e
+                        );
+                    }
+                }
+                Err(e) => {
+                    log::warn!(
+                        "Failed to get worktrees for session '{}': {}",
+                        session_id, e
+                    );
+                }
+            }
         }
     }
 

@@ -1,0 +1,268 @@
+/* ─── Session Branch Selector ─────────────────────────────────────── */
+
+.branch-selector-body {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.branch-selector-tabs {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-2);
+  border-radius: var(--radius);
+  padding: 2px;
+}
+
+.branch-selector-tab {
+  flex: 1;
+  padding: 6px 10px;
+  background: none;
+  border: none;
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  color: var(--text-3);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.branch-selector-tab:hover {
+  color: var(--text-1);
+}
+
+.branch-selector-tab.active {
+  background: var(--bg-1);
+  color: var(--text-0);
+  font-weight: 600;
+}
+
+/* ─── Branch List ─────────────────────────────────────────────────── */
+
+.branch-selector-list {
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.branch-selector-list::-webkit-scrollbar { width: 4px; }
+.branch-selector-list::-webkit-scrollbar-thumb { background: var(--bg-3); }
+
+.branch-selector-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 0.1s;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+}
+
+.branch-selector-item:last-child {
+  border-bottom: none;
+}
+
+.branch-selector-item:hover:not(.branch-selector-item-taken) {
+  background: var(--bg-hover);
+}
+
+.branch-selector-item.branch-selector-item-selected {
+  background: var(--accent-dim);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.branch-selector-item.branch-selector-item-highlighted {
+  background: var(--bg-hover);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.branch-selector-item.branch-selector-item-selected.branch-selector-item-highlighted {
+  background: var(--accent-dim);
+}
+
+.branch-selector-item.branch-selector-item-taken {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.branch-selector-item-name {
+  color: var(--text-0);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.branch-selector-item-current {
+  font-size: var(--text-xs);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.branch-selector-item-remote {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+
+.branch-selector-item-taken-label {
+  font-size: var(--text-xs);
+  color: var(--yellow);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.branch-selector-item-summary {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  flex-shrink: 0;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ─── New Branch Form ─────────────────────────────────────────────── */
+
+.branch-selector-new-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.branch-selector-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.branch-selector-field-label {
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.branch-selector-field-input {
+  padding: 6px 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  color: var(--text-0);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.branch-selector-field-input:focus {
+  border-color: var(--accent);
+}
+
+.branch-selector-field-input.invalid {
+  border-color: var(--red);
+}
+
+.branch-selector-field-select {
+  padding: 6px 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  color: var(--text-0);
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.branch-selector-field-select:focus {
+  border-color: var(--accent);
+}
+
+.branch-selector-validation-error {
+  font-size: var(--text-xs);
+  color: var(--red);
+  font-family: var(--font-mono);
+}
+
+/* ─── Skip Warning ────────────────────────────────────────────────── */
+
+.branch-selector-skip-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: 8px 12px;
+  background: var(--yellow-dim, rgba(255, 200, 50, 0.08));
+  border: 1px solid var(--yellow, #e8b931);
+  border-radius: var(--radius);
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+}
+
+.branch-selector-skip-warning-icon {
+  color: var(--yellow, #e8b931);
+  flex-shrink: 0;
+  font-size: var(--text-base);
+}
+
+/* ─── Loading / Error ─────────────────────────────────────────────── */
+
+.branch-selector-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+}
+
+.branch-selector-error {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: rgba(255, 80, 80, 0.08);
+  border: 1px solid var(--red);
+  border-radius: var(--radius);
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+}
+
+.branch-selector-error-retry {
+  align-self: flex-start;
+  padding: 4px 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.branch-selector-error-retry:hover {
+  background: var(--bg-hover);
+}
+
+/* ─── Empty state ─────────────────────────────────────────────────── */
+
+.branch-selector-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}

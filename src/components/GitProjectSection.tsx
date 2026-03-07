@@ -16,15 +16,32 @@ import { GitConflictViewer } from "./GitConflictViewer";
 import type { GitToast } from "./GitPanel";
 
 interface GitProjectSectionProps {
+  sessionId: string;
+  realmId: string;
   project: GitProjectStatus;
   onRefresh: () => void;
-  onDiffFile: (projectPath: string, file: GitFile) => void;
+  onDiffFile: (sessionId: string, realmId: string, file: GitFile) => void;
   onToast: (message: string, type?: GitToast["type"]) => void;
 }
 
 type ViewMode = "changes" | "history";
 
-export function GitProjectSection({ project, onRefresh, onDiffFile, onToast }: GitProjectSectionProps) {
+function truncatePath(fullPath: string, maxLen = 45): string {
+  const home = fullPath.replace(/^\/Users\/[^/]+/, "~");
+  if (home.length <= maxLen) return home;
+  const parts = home.split("/");
+  // Keep first and last 2 segments
+  if (parts.length > 4) {
+    return parts[0] + "/…/" + parts.slice(-2).join("/");
+  }
+  return "…" + home.slice(home.length - maxLen);
+}
+
+function isWorktreePath(path: string): boolean {
+  return path.includes("/.hermes/worktrees/");
+}
+
+export function GitProjectSection({ sessionId, realmId, project, onRefresh, onDiffFile, onToast }: GitProjectSectionProps) {
   const [expanded, setExpanded] = useState(true);
   const [commitMsg, setCommitMsg] = useState("");
   const [pushing, setPushing] = useState(false);
@@ -73,51 +90,51 @@ export function GitProjectSection({ project, onRefresh, onDiffFile, onToast }: G
   // Check merge status on mount and when has_conflicts changes
   useEffect(() => {
     if (project.has_conflicts) {
-      gitMergeStatus(project.project_path)
+      gitMergeStatus(sessionId, realmId)
         .then((ms) => setMergeStatus(ms))
         .catch(() => {});
     } else {
       // Also check — repo might be in merge state without conflicts yet
-      gitMergeStatus(project.project_path)
+      gitMergeStatus(sessionId, realmId)
         .then((ms) => {
           if (ms.in_merge) setMergeStatus(ms);
           else setMergeStatus(null);
         })
         .catch(() => {});
     }
-  }, [project.has_conflicts, project.project_path]);
+  }, [project.has_conflicts, sessionId, realmId]);
 
   const handleStage = useCallback(async (path: string) => {
     setError(null);
     try {
-      await gitStage(project.project_path, [path]);
+      await gitStage(sessionId, realmId, [path]);
       onRefresh();
     } catch (e) { setError(String(e)); }
-  }, [project.project_path, onRefresh]);
+  }, [sessionId, realmId, onRefresh]);
 
   const handleUnstage = useCallback(async (path: string) => {
     setError(null);
     try {
-      await gitUnstage(project.project_path, [path]);
+      await gitUnstage(sessionId, realmId, [path]);
       onRefresh();
     } catch (e) { setError(String(e)); }
-  }, [project.project_path, onRefresh]);
+  }, [sessionId, realmId, onRefresh]);
 
   const handleStageAll = useCallback(async () => {
     setError(null);
     try {
-      await gitStage(project.project_path, ["."]);
+      await gitStage(sessionId, realmId, ["."]);
       onRefresh();
     } catch (e) { setError(String(e)); }
-  }, [project.project_path, onRefresh]);
+  }, [sessionId, realmId, onRefresh]);
 
   const handleUnstageAll = useCallback(async () => {
     setError(null);
     try {
-      await gitUnstage(project.project_path, ["."]);
+      await gitUnstage(sessionId, realmId, ["."]);
       onRefresh();
     } catch (e) { setError(String(e)); }
-  }, [project.project_path, onRefresh]);
+  }, [sessionId, realmId, onRefresh]);
 
   const handleCommit = useCallback(async () => {
     if (!commitMsg.trim()) return;
@@ -125,7 +142,7 @@ export function GitProjectSection({ project, onRefresh, onDiffFile, onToast }: G
     try {
       setError(null);
       if (autoStage) {
-        await gitStage(project.project_path, ["."]);
+        await gitStage(sessionId, realmId, ["."]);
       }
       let authorName: string | undefined;
       let authorEmail: string | undefined;
@@ -134,33 +151,33 @@ export function GitProjectSection({ project, onRefresh, onDiffFile, onToast }: G
         if (settings.git_author_name) authorName = settings.git_author_name;
         if (settings.git_author_email) authorEmail = settings.git_author_email;
       } catch { /* use defaults */ }
-      await gitCommit(project.project_path, commitMsg.trim(), authorName, authorEmail);
+      await gitCommit(sessionId, realmId, commitMsg.trim(), authorName, authorEmail);
       setCommitMsg("");
       onToast("Committed successfully");
       onRefresh();
     } catch (e) { setError(String(e)); }
-  }, [project.project_path, commitMsg, staged.length, autoStage, onRefresh, onToast]);
+  }, [sessionId, realmId, commitMsg, staged.length, autoStage, onRefresh, onToast]);
 
   const handlePush = useCallback(async () => {
     try {
       setPushing(true);
       setError(null);
-      const result = await gitPush(project.project_path);
+      const result = await gitPush(sessionId, realmId);
       onToast(result.message || "Pushed successfully");
       onRefresh();
     } catch (e) { setError(String(e)); }
     finally { setPushing(false); }
-  }, [project.project_path, onRefresh, onToast]);
+  }, [sessionId, realmId, onRefresh, onToast]);
 
   const handlePull = useCallback(async () => {
     try {
       setPulling(true);
       setError(null);
-      const result = await gitPull(project.project_path);
+      const result = await gitPull(sessionId, realmId);
       onToast(result.message || "Pulled successfully", "info");
       onRefresh();
       // Check if pull resulted in merge conflicts
-      const ms = await gitMergeStatus(project.project_path);
+      const ms = await gitMergeStatus(sessionId, realmId);
       if (ms.in_merge) {
         setMergeStatus(ms);
         if (ms.conflicted_files.length > 0) {
@@ -169,38 +186,38 @@ export function GitProjectSection({ project, onRefresh, onDiffFile, onToast }: G
       }
     } catch (e) { setError(String(e)); }
     finally { setPulling(false); }
-  }, [project.project_path, onRefresh, onToast]);
+  }, [sessionId, realmId, onRefresh, onToast]);
 
   const handleOpen = useCallback((path: string) => {
     setError(null);
-    gitOpenFile(project.project_path, path).catch((e) => setError(String(e)));
-  }, [project.project_path]);
+    gitOpenFile(sessionId, realmId, path).catch((e) => setError(String(e)));
+  }, [sessionId, realmId]);
 
   const handleFileClick = useCallback((file: GitFile) => {
     if (file.status !== "untracked") {
-      onDiffFile(project.project_path, file);
+      onDiffFile(sessionId, realmId, file);
     }
-  }, [project.project_path, onDiffFile]);
+  }, [sessionId, realmId, onDiffFile]);
 
   // ─── Merge handlers ──────────────────────────────────────────────
 
   const handleResolveConflict = useCallback(async (filePath: string, strategy: ConflictStrategy) => {
     setError(null);
     try {
-      await gitResolveConflict(project.project_path, filePath, strategy);
+      await gitResolveConflict(sessionId, realmId, filePath, strategy);
       setResolvedStrategies((prev) => ({ ...prev, [filePath]: strategy }));
-      const ms = await gitMergeStatus(project.project_path);
+      const ms = await gitMergeStatus(sessionId, realmId);
       setMergeStatus(ms);
       onRefresh();
       onToast(`Resolved ${filePath} (${strategy})`, "info");
     } catch (e) { setError(String(e)); }
-  }, [project.project_path, onRefresh, onToast]);
+  }, [sessionId, realmId, onRefresh, onToast]);
 
   const handleAbortMerge = useCallback(async () => {
     try {
       setAborting(true);
       setError(null);
-      await gitAbortMerge(project.project_path);
+      await gitAbortMerge(sessionId, realmId);
       setMergeStatus(null);
       setResolvedStrategies({});
       setConflictViewTarget(null);
@@ -208,7 +225,7 @@ export function GitProjectSection({ project, onRefresh, onDiffFile, onToast }: G
       onRefresh();
     } catch (e) { setError(String(e)); }
     finally { setAborting(false); }
-  }, [project.project_path, onRefresh, onToast]);
+  }, [sessionId, realmId, onRefresh, onToast]);
 
   const handleCompleteMerge = useCallback(async () => {
     try {
@@ -222,7 +239,8 @@ export function GitProjectSection({ project, onRefresh, onDiffFile, onToast }: G
         if (settings.git_author_email) authorEmail = settings.git_author_email;
       } catch { /* use defaults */ }
       await gitContinueMerge(
-        project.project_path,
+        sessionId,
+        realmId,
         mergeStatus?.merge_message || undefined,
         authorName,
         authorEmail,
@@ -233,7 +251,7 @@ export function GitProjectSection({ project, onRefresh, onDiffFile, onToast }: G
       onRefresh();
     } catch (e) { setError(String(e)); }
     finally { setCompleting(false); }
-  }, [project.project_path, mergeStatus, onRefresh, onToast]);
+  }, [sessionId, realmId, mergeStatus, onRefresh, onToast]);
 
   const handleViewConflict = useCallback((filePath: string) => {
     setConflictViewTarget(filePath);
@@ -251,6 +269,9 @@ export function GitProjectSection({ project, onRefresh, onDiffFile, onToast }: G
       <div className="git-project-header" onClick={() => setExpanded((v) => !v)} onContextMenu={(e) => showEmptyMenu(e, buildEmptyAreaMenuItems("git-section"))}>
         <span className={`git-project-chevron ${expanded ? "git-project-chevron-open" : ""}`}>&#9656;</span>
         <span className="git-project-name">{project.project_name}</span>
+        {isWorktreePath(project.project_path) && (
+          <span className="git-project-isolated">Isolated copy</span>
+        )}
         {project.branch && (
           <span
             ref={branchTriggerRef}
@@ -270,10 +291,19 @@ export function GitProjectSection({ project, onRefresh, onDiffFile, onToast }: G
         {project.ahead > 0 && <span className="git-project-ahead" title={`${project.ahead} ahead`}>&uarr;{project.ahead}</span>}
         {project.behind > 0 && <span className="git-project-behind" title={`${project.behind} behind`}>&darr;{project.behind}</span>}
       </div>
+      {expanded && project.project_path && (
+        <div className="git-project-path" title={project.project_path}>
+          <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12" className="git-project-path-icon">
+            <path d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2c-.33-.44-.85-.7-1.4-.7Z" />
+          </svg>
+          <span className="git-project-path-text">{truncatePath(project.project_path)}</span>
+        </div>
+      )}
 
       {branchSelectorOpen && (
         <GitBranchSelector
-          projectPath={project.project_path}
+          sessionId={sessionId}
+          realmId={realmId}
           currentBranch={project.branch}
           onRefresh={onRefresh}
           onToast={onToast}
@@ -310,7 +340,6 @@ export function GitProjectSection({ project, onRefresh, onDiffFile, onToast }: G
               {inMerge && mergeStatus && (
                 <GitMergeBanner
                   mergeStatus={mergeStatus}
-                  projectPath={project.project_path}
                   onResolve={handleResolveConflict}
                   onViewConflict={handleViewConflict}
                   onAbort={handleAbortMerge}
@@ -381,7 +410,8 @@ export function GitProjectSection({ project, onRefresh, onDiffFile, onToast }: G
 
               {/* Stash Section */}
               <GitStashSection
-                projectPath={project.project_path}
+                sessionId={sessionId}
+                realmId={realmId}
                 stashCount={project.stash_count}
                 hasChanges={hasChanges}
                 onRefresh={onRefresh}
@@ -455,7 +485,7 @@ export function GitProjectSection({ project, onRefresh, onDiffFile, onToast }: G
           )}
 
           {viewMode === "history" && (
-            <GitLogView projectPath={project.project_path} />
+            <GitLogView sessionId={sessionId} realmId={realmId} />
           )}
 
           {error && (
@@ -467,7 +497,8 @@ export function GitProjectSection({ project, onRefresh, onDiffFile, onToast }: G
       {/* Conflict Viewer Modal */}
       {conflictViewTarget && (
         <GitConflictViewer
-          projectPath={project.project_path}
+          sessionId={sessionId}
+          realmId={realmId}
           filePath={conflictViewTarget}
           onResolve={(filePath, strategy) => {
             handleResolveConflict(filePath, strategy);

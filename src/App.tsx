@@ -9,9 +9,10 @@ import { createProject } from "./api/projects";
 import { SessionProvider, useSession, useActiveSession, useSessionList, useAutonomousSettings } from "./state/SessionContext";
 import { SessionList } from "./components/SessionList";
 import { ContextPanel } from "./components/ContextPanel";
-import { ActivityBar, SessionsIcon, ContextIcon, PlusIcon, ProcessesIcon, GitIcon, FilesIcon, SearchIcon, SettingsIcon } from "./components/ActivityBar";
+import { ActivityBar, SessionsIcon, ContextIcon, PlusIcon, SettingsIcon } from "./components/ActivityBar";
+import type { SessionView } from "./components/SessionList";
+
 import { ProcessPanel } from "./components/ProcessPanel";
-import { GitPanel } from "./components/GitPanel";
 import { FileExplorerPanel } from "./components/FileExplorerPanel";
 import { SearchPanel } from "./components/SearchPanel";
 import { StatusBar } from "./components/StatusBar";
@@ -30,6 +31,7 @@ import { ProjectPicker } from "./components/ProjectPicker";
 import { SessionCreator } from "./components/SessionCreator";
 import { PromptComposer } from "./components/PromptComposer";
 import { SplitLayout } from "./components/SplitLayout";
+import { SessionGitPanel } from "./components/SessionGitPanel";
 import { setSetting } from "./api/settings";
 import { SplitDirection, collectPanes } from "./state/layoutTypes";
 import { getDraggedSession } from "./components/SplitPane";
@@ -38,6 +40,7 @@ import { focusTerminal } from "./terminal/TerminalPool";
 import { useNativeMenuEvents } from "./hooks/useNativeMenuEvents";
 import { useMenuStateSync } from "./hooks/useMenuStateSync";
 import { useAutoUpdater } from "./hooks/useAutoUpdater";
+import { useSessionGitSummary } from "./hooks/useSessionGitSummary";
 import { UpdateDialog } from "./components/UpdateDialog";
 
 function AppContent() {
@@ -54,6 +57,7 @@ function AppContent() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const pendingSplit = useRef<{ paneId: string; direction: SplitDirection } | null>(null);
   const updater = useAutoUpdater();
+  const activeGitSummary = useSessionGitSummary(state.activeSessionId, !!activeSession);
 
   // Keyboard shortcuts — only those NOT handled by native menu bar
   // (Cmd+Alt+Arrow for pane nav, Cmd+1-9 for session switch, F1/F3 for overlays)
@@ -257,6 +261,14 @@ function AppContent() {
             <>
               <span className="topbar-dot" style={{ background: activeSession.color }} />
               <span className="topbar-session-name">{activeSession.label}</span>
+              {activeGitSummary.branch && (
+                <span className="topbar-branch">
+                  <svg viewBox="0 0 16 16" fill="currentColor" width="10" height="10" aria-hidden="true">
+                    <path d="M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Z" />
+                  </svg>
+                  {activeGitSummary.branch}
+                </span>
+              )}
             </>
           ) : (
             <span className="topbar-title">HERMES-IDE</span>
@@ -271,37 +283,38 @@ function AppContent() {
             side="left"
             tabs={[
               { id: "sessions", label: `Sessions (${fmt("{mod}B")})`, icon: SessionsIcon, badge: sessions.length || undefined },
-              { id: "processes", label: `Processes (${fmt("{mod}P")})`, icon: ProcessesIcon },
-              { id: "git", label: `Git (${fmt("{mod}G")})`, icon: GitIcon },
-              { id: "files", label: `Files (${fmt("{mod}F")})`, icon: FilesIcon },
-              { id: "search", label: `Search (${fmt("{mod}{shift}F")})`, icon: SearchIcon },
             ]}
-            activeTabId={
-              ui.searchPanelOpen ? "search" :
-              ui.fileExplorerOpen ? "files" :
-              ui.gitPanelOpen ? "git" :
-              ui.processPanelOpen ? "processes" :
-              ui.sessionListCollapsed ? null : "sessions"
-            }
-            onTabClick={(tabId) => dispatch({ type: "SET_LEFT_TAB", tab: tabId as "sessions" | "processes" | "git" | "files" | "search" })}
+            activeTabId={!ui.sessionListCollapsed ? "sessions" : null}
+            onTabClick={() => dispatch({ type: "TOGGLE_SIDEBAR" })}
             topAction={{ icon: PlusIcon, label: `New Session (${fmt("{mod}N")})`, onClick: () => setSessionCreatorOpen(true) }}
             bottomAction={{ icon: SettingsIcon, label: "Settings", onClick: () => setSettingsOpen("general") }}
           />
         )}
-        {!ui.sessionListCollapsed && !ui.flowMode && !ui.processPanelOpen && !ui.gitPanelOpen && !ui.fileExplorerOpen && !ui.searchPanelOpen && (
+        {/* Session list sidebar — sub-view buttons are inline under the active session */}
+        {!ui.sessionListCollapsed && !ui.flowMode && !ui.processPanelOpen && (
           <SessionList
             sessions={sessions}
             activeSessionId={state.activeSessionId}
             onSelect={setActive}
             onClose={requestCloseSession}
             onNewSession={() => setSessionCreatorOpen(true)}
+            activeView={
+              ui.searchPanelOpen ? "search" :
+              ui.fileExplorerOpen ? "files" :
+              ui.gitPanelOpen ? "git" :
+              null
+            }
+            onViewChange={(view: SessionView) => {
+              dispatch({ type: "SET_SUBVIEW_PANEL", panel: view });
+            }}
+            gitBadge={activeGitSummary.changeCount || undefined}
           />
+        )}
+        {ui.gitPanelOpen && !ui.flowMode && state.activeSessionId && (
+          <SessionGitPanel sessionId={state.activeSessionId} realmId="" />
         )}
         {ui.processPanelOpen && !ui.flowMode && (
           <ProcessPanel visible={ui.processPanelOpen} />
-        )}
-        {ui.gitPanelOpen && !ui.flowMode && (
-          <GitPanel visible={ui.gitPanelOpen} />
         )}
         {ui.fileExplorerOpen && !ui.flowMode && (
           <FileExplorerPanel visible={ui.fileExplorerOpen} />

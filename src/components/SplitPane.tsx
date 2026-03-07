@@ -66,7 +66,6 @@ export function SplitPane({ paneId, sessionId }: SplitPaneProps) {
   const paneRef = useRef<HTMLDivElement>(null);
   const [dropZone, setDropZone] = useState<DropZone>(null);
   const [fileDragOver, setFileDragOver] = useState(false);
-
   // Keep refs for values used inside the Tauri handler to avoid re-registering
   const layoutRef = useRef(state.layout.root);
   layoutRef.current = state.layout.root;
@@ -256,8 +255,13 @@ export function SplitPane({ paneId, sessionId }: SplitPaneProps) {
           />
         )}
       </div>
-      <div className="split-pane-terminal" onContextMenu={(e) => showTerminalMenu(e, buildTerminalMenuItems(terminalHasSelection(sessionId)))}>
-        <TerminalPane sessionId={sessionId} phase={session.phase} color={session.color} />
+      <div className="split-pane-content">
+        <div
+          className="split-pane-terminal"
+          onContextMenu={(e) => showTerminalMenu(e, buildTerminalMenuItems(terminalHasSelection(sessionId)))}
+        >
+          <TerminalPane sessionId={sessionId} phase={session.phase} color={session.color} />
+        </div>
       </div>
 
       {/* Drag capture overlay — sits above xterm canvas during drags */}

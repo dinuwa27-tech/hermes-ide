@@ -129,6 +129,19 @@ pub struct CostDailyEntry {
     pub session_count: i64,
 }
 
+// ─── Session Worktrees ──────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionWorktreeRow {
+    pub id: String,
+    pub session_id: String,
+    pub realm_id: String,
+    pub worktree_path: String,
+    pub branch_name: Option<String>,
+    pub is_main_worktree: bool,
+    pub created_at: String,
+}
+
 impl Database {
     pub fn new(path: &Path) -> Result<Self, String> {
         let conn = Connection::open(path).map_err(|e| format!("Failed to open database: {}", e))?;
@@ -348,6 +361,20 @@ impl Database {
                 config_hash TEXT,
                 loaded_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
+
+            CREATE TABLE IF NOT EXISTS session_worktrees (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                realm_id TEXT NOT NULL,
+                worktree_path TEXT NOT NULL,
+                branch_name TEXT,
+                is_main_worktree INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(session_id, realm_id),
+                UNIQUE(worktree_path)
+            );
+            CREATE INDEX IF NOT EXISTS idx_sw_session ON session_worktrees(session_id);
+            CREATE INDEX IF NOT EXISTS idx_sw_realm ON session_worktrees(realm_id);
         ").map_err(|e| format!("Migration failed: {}", e))?;
 
         // Migrate existing projects → realms (one-time, idempotent)
@@ -1245,6 +1272,133 @@ impl Database {
         for row in rows { entries.push(row.map_err(|e| e.to_string())?); }
         Ok(entries)
     }
+
+    // ─── Session Worktree Operations ─────────────────────────────
+
+    pub fn insert_session_worktree(
+        &self, id: &str, session_id: &str, realm_id: &str,
+        worktree_path: &str, branch_name: Option<&str>, is_main_worktree: bool,
+    ) -> Result<(), String> {
+        self.conn.execute(
+            "INSERT INTO session_worktrees (id, session_id, realm_id, worktree_path, branch_name, is_main_worktree)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![id, session_id, realm_id, worktree_path, branch_name, is_main_worktree as i32],
+        ).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn get_session_worktrees(&self, session_id: &str) -> Result<Vec<SessionWorktreeRow>, String> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, session_id, realm_id, worktree_path, branch_name, is_main_worktree, created_at
+             FROM session_worktrees WHERE session_id = ?1 ORDER BY created_at"
+        ).map_err(|e| e.to_string())?;
+
+        let rows = stmt.query_map(params![session_id], |row| {
+            let is_main: i32 = row.get(5)?;
+            Ok(SessionWorktreeRow {
+                id: row.get(0)?, session_id: row.get(1)?, realm_id: row.get(2)?,
+                worktree_path: row.get(3)?, branch_name: row.get(4)?,
+                is_main_worktree: is_main != 0, created_at: row.get(6)?,
+            })
+        }).map_err(|e| e.to_string())?;
+
+        let mut entries = Vec::new();
+        for row in rows { entries.push(row.map_err(|e| e.to_string())?); }
+        Ok(entries)
+    }
+
+    pub fn get_worktree_by_session_and_realm(
+        &self, session_id: &str, realm_id: &str,
+    ) -> Result<Option<SessionWorktreeRow>, String> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, session_id, realm_id, worktree_path, branch_name, is_main_worktree, created_at
+             FROM session_worktrees WHERE session_id = ?1 AND realm_id = ?2"
+        ).map_err(|e| e.to_string())?;
+
+        let result = stmt.query_row(params![session_id, realm_id], |row| {
+            let is_main: i32 = row.get(5)?;
+            Ok(SessionWorktreeRow {
+                id: row.get(0)?, session_id: row.get(1)?, realm_id: row.get(2)?,
+                worktree_path: row.get(3)?, branch_name: row.get(4)?,
+                is_main_worktree: is_main != 0, created_at: row.get(6)?,
+            })
+        }).ok();
+        Ok(result)
+    }
+
+    pub fn get_worktrees_for_realm(&self, realm_id: &str) -> Result<Vec<SessionWorktreeRow>, String> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, session_id, realm_id, worktree_path, branch_name, is_main_worktree, created_at
+             FROM session_worktrees WHERE realm_id = ?1 ORDER BY created_at"
+        ).map_err(|e| e.to_string())?;
+
+        let rows = stmt.query_map(params![realm_id], |row| {
+            let is_main: i32 = row.get(5)?;
+            Ok(SessionWorktreeRow {
+                id: row.get(0)?, session_id: row.get(1)?, realm_id: row.get(2)?,
+                worktree_path: row.get(3)?, branch_name: row.get(4)?,
+                is_main_worktree: is_main != 0, created_at: row.get(6)?,
+            })
+        }).map_err(|e| e.to_string())?;
+
+        let mut entries = Vec::new();
+        for row in rows { entries.push(row.map_err(|e| e.to_string())?); }
+        Ok(entries)
+    }
+
+    pub fn update_worktree_branch(&self, id: &str, branch_name: &str) -> Result<(), String> {
+        self.conn.execute(
+            "UPDATE session_worktrees SET branch_name = ?1 WHERE id = ?2",
+            params![branch_name, id],
+        ).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn get_all_session_worktrees(&self) -> Result<Vec<SessionWorktreeRow>, String> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, session_id, realm_id, worktree_path, branch_name, is_main_worktree, created_at
+             FROM session_worktrees ORDER BY created_at"
+        ).map_err(|e| e.to_string())?;
+
+        let rows = stmt.query_map([], |row| {
+            let is_main: i32 = row.get(5)?;
+            Ok(SessionWorktreeRow {
+                id: row.get(0)?, session_id: row.get(1)?, realm_id: row.get(2)?,
+                worktree_path: row.get(3)?, branch_name: row.get(4)?,
+                is_main_worktree: is_main != 0, created_at: row.get(6)?,
+            })
+        }).map_err(|e| e.to_string())?;
+
+        let mut entries = Vec::new();
+        for row in rows { entries.push(row.map_err(|e| e.to_string())?); }
+        Ok(entries)
+    }
+
+    /// Check whether a session exists in the sessions table.
+    pub fn session_exists(&self, session_id: &str) -> Result<bool, String> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM sessions WHERE id = ?1",
+            params![session_id],
+            |row| row.get(0),
+        ).map_err(|e| e.to_string())?;
+        Ok(count > 0)
+    }
+
+    pub fn delete_session_worktree(&self, id: &str) -> Result<(), String> {
+        self.conn.execute(
+            "DELETE FROM session_worktrees WHERE id = ?1",
+            params![id],
+        ).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn delete_worktrees_for_session(&self, session_id: &str) -> Result<(), String> {
+        self.conn.execute(
+            "DELETE FROM session_worktrees WHERE session_id = ?1",
+            params![session_id],
+        ).map_err(|e| e.to_string())?;
+        Ok(())
+    }
 }
 
 // ─── Tauri Command Wrappers ─────────────────────────────────────────
@@ -1413,6 +1567,308 @@ pub fn get_execution_nodes_count(state: State<'_, AppState>, session_id: String)
 pub fn get_cost_by_project(state: State<'_, AppState>, days: Option<i64>) -> Result<Vec<ProjectCostEntry>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.get_cost_by_project(days.unwrap_or(7))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::NamedTempFile;
+
+    /// Helper: create a fresh in-memory-style database backed by a temp file
+    /// so that all tables are set up via `run_migrations`.
+    fn test_db() -> Database {
+        let tmp = NamedTempFile::new().unwrap();
+        Database::new(tmp.path()).expect("Failed to create test database")
+    }
+
+    // ── insert + get_session_worktrees ─────────────────────────────────
+
+    #[test]
+    fn test_insert_and_get_session_worktrees() {
+        let db = test_db();
+
+        db.insert_session_worktree(
+            "wt1", "sess1", "realm1", "/path/to/wt", Some("main"), false,
+        )
+        .unwrap();
+
+        let rows = db.get_session_worktrees("sess1").unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "wt1");
+        assert_eq!(rows[0].session_id, "sess1");
+        assert_eq!(rows[0].realm_id, "realm1");
+        assert_eq!(rows[0].worktree_path, "/path/to/wt");
+        assert_eq!(rows[0].branch_name, Some("main".to_string()));
+        assert!(!rows[0].is_main_worktree);
+    }
+
+    #[test]
+    fn test_get_session_worktrees_empty() {
+        let db = test_db();
+        let rows = db.get_session_worktrees("nonexistent").unwrap();
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn test_insert_multiple_worktrees_for_session() {
+        let db = test_db();
+
+        db.insert_session_worktree(
+            "wt1", "sess1", "realm1", "/path/wt1", Some("branch-a"), false,
+        )
+        .unwrap();
+        db.insert_session_worktree(
+            "wt2", "sess1", "realm2", "/path/wt2", Some("branch-b"), false,
+        )
+        .unwrap();
+
+        let rows = db.get_session_worktrees("sess1").unwrap();
+        assert_eq!(rows.len(), 2);
+    }
+
+    #[test]
+    fn test_insert_main_worktree_flag() {
+        let db = test_db();
+
+        db.insert_session_worktree(
+            "wt-main", "sess1", "realm1", "/repo", None, true,
+        )
+        .unwrap();
+
+        let rows = db.get_session_worktrees("sess1").unwrap();
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].is_main_worktree);
+        assert!(rows[0].branch_name.is_none());
+    }
+
+    // ── get_worktree_by_session_and_realm ──────────────────────────────
+
+    #[test]
+    fn test_get_worktree_by_session_and_realm_found() {
+        let db = test_db();
+
+        db.insert_session_worktree(
+            "wt1", "sess1", "realm1", "/path/wt1", Some("main"), false,
+        )
+        .unwrap();
+
+        let result = db.get_worktree_by_session_and_realm("sess1", "realm1").unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().id, "wt1");
+    }
+
+    #[test]
+    fn test_get_worktree_by_session_and_realm_not_found() {
+        let db = test_db();
+
+        let result = db.get_worktree_by_session_and_realm("sess1", "realm1").unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_get_worktree_by_session_and_realm_wrong_session() {
+        let db = test_db();
+
+        db.insert_session_worktree(
+            "wt1", "sess1", "realm1", "/path/wt1", Some("main"), false,
+        )
+        .unwrap();
+
+        let result = db.get_worktree_by_session_and_realm("sess2", "realm1").unwrap();
+        assert!(result.is_none());
+    }
+
+    // ── get_worktrees_for_realm ────────────────────────────────────────
+
+    #[test]
+    fn test_get_worktrees_for_realm() {
+        let db = test_db();
+
+        db.insert_session_worktree(
+            "wt1", "sess1", "realm1", "/path/wt1", Some("branch-a"), false,
+        )
+        .unwrap();
+        db.insert_session_worktree(
+            "wt2", "sess2", "realm1", "/path/wt2", Some("branch-b"), false,
+        )
+        .unwrap();
+        db.insert_session_worktree(
+            "wt3", "sess3", "realm2", "/path/wt3", Some("branch-c"), false,
+        )
+        .unwrap();
+
+        let rows = db.get_worktrees_for_realm("realm1").unwrap();
+        assert_eq!(rows.len(), 2);
+
+        let rows2 = db.get_worktrees_for_realm("realm2").unwrap();
+        assert_eq!(rows2.len(), 1);
+        assert_eq!(rows2[0].id, "wt3");
+    }
+
+    #[test]
+    fn test_get_worktrees_for_realm_empty() {
+        let db = test_db();
+        let rows = db.get_worktrees_for_realm("nonexistent").unwrap();
+        assert!(rows.is_empty());
+    }
+
+    // ── update_worktree_branch ─────────────────────────────────────────
+
+    #[test]
+    fn test_update_worktree_branch() {
+        let db = test_db();
+
+        db.insert_session_worktree(
+            "wt1", "sess1", "realm1", "/path/wt1", Some("old-branch"), false,
+        )
+        .unwrap();
+
+        db.update_worktree_branch("wt1", "new-branch").unwrap();
+
+        let row = db.get_worktree_by_session_and_realm("sess1", "realm1").unwrap().unwrap();
+        assert_eq!(row.branch_name, Some("new-branch".to_string()));
+    }
+
+    #[test]
+    fn test_update_worktree_branch_nonexistent_is_noop() {
+        let db = test_db();
+        // Should not error even if the row doesn't exist
+        let result = db.update_worktree_branch("no-such-id", "branch");
+        assert!(result.is_ok());
+    }
+
+    // ── delete_session_worktree ────────────────────────────────────────
+
+    #[test]
+    fn test_delete_session_worktree() {
+        let db = test_db();
+
+        db.insert_session_worktree(
+            "wt1", "sess1", "realm1", "/path/wt1", Some("main"), false,
+        )
+        .unwrap();
+
+        db.delete_session_worktree("wt1").unwrap();
+
+        let rows = db.get_session_worktrees("sess1").unwrap();
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn test_delete_session_worktree_nonexistent() {
+        let db = test_db();
+        // Should succeed even if row doesn't exist
+        let result = db.delete_session_worktree("no-such-id");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_delete_session_worktree_only_deletes_target() {
+        let db = test_db();
+
+        db.insert_session_worktree(
+            "wt1", "sess1", "realm1", "/path/wt1", Some("a"), false,
+        )
+        .unwrap();
+        db.insert_session_worktree(
+            "wt2", "sess1", "realm2", "/path/wt2", Some("b"), false,
+        )
+        .unwrap();
+
+        db.delete_session_worktree("wt1").unwrap();
+
+        let rows = db.get_session_worktrees("sess1").unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "wt2");
+    }
+
+    // ── delete_worktrees_for_session ───────────────────────────────────
+
+    #[test]
+    fn test_delete_worktrees_for_session() {
+        let db = test_db();
+
+        db.insert_session_worktree(
+            "wt1", "sess1", "realm1", "/path/wt1", Some("a"), false,
+        )
+        .unwrap();
+        db.insert_session_worktree(
+            "wt2", "sess1", "realm2", "/path/wt2", Some("b"), false,
+        )
+        .unwrap();
+        db.insert_session_worktree(
+            "wt3", "sess2", "realm1", "/path/wt3", Some("c"), false,
+        )
+        .unwrap();
+
+        db.delete_worktrees_for_session("sess1").unwrap();
+
+        // sess1 should be empty
+        let rows = db.get_session_worktrees("sess1").unwrap();
+        assert!(rows.is_empty());
+
+        // sess2 should be untouched
+        let rows2 = db.get_session_worktrees("sess2").unwrap();
+        assert_eq!(rows2.len(), 1);
+        assert_eq!(rows2[0].id, "wt3");
+    }
+
+    #[test]
+    fn test_delete_worktrees_for_session_nonexistent() {
+        let db = test_db();
+        let result = db.delete_worktrees_for_session("no-such-session");
+        assert!(result.is_ok());
+    }
+
+    // ── Unique constraints ─────────────────────────────────────────────
+
+    #[test]
+    fn test_unique_session_realm_constraint() {
+        let db = test_db();
+
+        db.insert_session_worktree(
+            "wt1", "sess1", "realm1", "/path/wt1", Some("a"), false,
+        )
+        .unwrap();
+
+        // Inserting with same session_id + realm_id should fail (UNIQUE constraint)
+        let result = db.insert_session_worktree(
+            "wt2", "sess1", "realm1", "/path/wt2", Some("b"), false,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_unique_worktree_path_constraint() {
+        let db = test_db();
+
+        db.insert_session_worktree(
+            "wt1", "sess1", "realm1", "/same/path", Some("a"), false,
+        )
+        .unwrap();
+
+        // Inserting with same worktree_path should fail (UNIQUE constraint)
+        let result = db.insert_session_worktree(
+            "wt2", "sess2", "realm2", "/same/path", Some("b"), false,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_unique_id_constraint() {
+        let db = test_db();
+
+        db.insert_session_worktree(
+            "wt1", "sess1", "realm1", "/path1", Some("a"), false,
+        )
+        .unwrap();
+
+        // Inserting with same id should fail (PRIMARY KEY constraint)
+        let result = db.insert_session_worktree(
+            "wt1", "sess2", "realm2", "/path2", Some("b"), false,
+        );
+        assert!(result.is_err());
+    }
 }
 
 // ─── Settings Export / Import Commands ───────────────────────────────

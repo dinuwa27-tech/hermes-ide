@@ -1,10 +1,12 @@
 import "../styles/components/SessionCreator.css";
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Project } from "../hooks/useSessionProjects";
 import { CreateSessionOpts } from "../state/SessionContext";
 import { getProjects, createProject, deleteProject } from "../api/projects";
+import { gitListBranchesForRealm } from "../api/git";
 import { LANG_COLORS } from "../utils/langColors";
+import { SessionBranchSelector } from "./SessionBranchSelector";
 
 const AI_PROVIDERS = [
   { id: "claude", label: "Claude", description: "Claude Code CLI", enabled: true },
@@ -14,13 +16,16 @@ const AI_PROVIDERS = [
   { id: "copilot", label: "Copilot", description: "GitHub Copilot CLI", enabled: true },
 ] as const;
 
+// Internal step identifiers (not displayed to user)
+type Step = "projects" | "branch" | "ai" | "confirm";
+
 interface SessionCreatorProps {
   onClose: () => void;
   onCreate: (opts: CreateSessionOpts) => Promise<void>;
 }
 
 export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStep] = useState<Step>("projects");
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
   const [aiProvider, setAiProvider] = useState<string | null>(null);
   const [label, setLabel] = useState("");
@@ -33,8 +38,42 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
   const [highlightedProviderIndex, setHighlightedProviderIndex] = useState(0);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const step2Ref = useRef<HTMLDivElement>(null);
+  const aiStepRef = useRef<HTMLDivElement>(null);
   const labelRef = useRef<HTMLInputElement>(null);
+
+  // Branch selection state
+  const [isGitRepo, setIsGitRepo] = useState(false);
+  const [checkingGit, setCheckingGit] = useState(false);
+  const [branchName, setBranchName] = useState<string | null>(null);
+  const [createNewBranch, setCreateNewBranch] = useState(false);
+
+  // Determine whether to show the branch step
+  const showBranchStep = isGitRepo && selectedProjectIds.length > 0;
+
+  // Compute ordered steps for display
+  const orderedSteps = useMemo<Step[]>(() => {
+    const steps: Step[] = ["projects"];
+    if (showBranchStep) steps.push("branch");
+    steps.push("ai", "confirm");
+    return steps;
+  }, [showBranchStep]);
+
+  const totalSteps = orderedSteps.length;
+  const currentStepNumber = orderedSteps.indexOf(step) + 1;
+
+  const goNext = useCallback(() => {
+    const idx = orderedSteps.indexOf(step);
+    if (idx < orderedSteps.length - 1) {
+      setStep(orderedSteps[idx + 1]);
+    }
+  }, [step, orderedSteps]);
+
+  const goBack = useCallback(() => {
+    const idx = orderedSteps.indexOf(step);
+    if (idx > 0) {
+      setStep(orderedSteps[idx - 1]);
+    }
+  }, [step, orderedSteps]);
 
   useEffect(() => {
     getProjects()
@@ -43,15 +82,14 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
   }, []);
 
   useEffect(() => {
-    if (step === 1) searchRef.current?.focus();
-    if (step === 2) {
-      step2Ref.current?.focus();
-      // Reset to current selection or 0
+    if (step === "projects") searchRef.current?.focus();
+    if (step === "ai") {
+      aiStepRef.current?.focus();
       const allItems = [...AI_PROVIDERS.filter((p) => p.enabled), { id: null }] as const;
       const currentIdx = allItems.findIndex((p) => p.id === aiProvider);
       setHighlightedProviderIndex(currentIdx >= 0 ? currentIdx : allItems.length - 1);
     }
-    if (step === 3) labelRef.current?.focus();
+    if (step === "confirm") labelRef.current?.focus();
   }, [step]);
 
   useEffect(() => {
@@ -64,6 +102,28 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
       items[highlightedIndex]?.scrollIntoView({ block: "nearest" });
     }
   }, [highlightedIndex]);
+
+  // Check if the first selected project is a git repo when selection changes
+  useEffect(() => {
+    if (selectedProjectIds.length === 0) {
+      setIsGitRepo(false);
+      setBranchName(null);
+      setCreateNewBranch(false);
+      return;
+    }
+    const realmId = selectedProjectIds[0];
+    setCheckingGit(true);
+    gitListBranchesForRealm(realmId)
+      .then((branches) => {
+        setIsGitRepo(branches.length > 0);
+      })
+      .catch(() => {
+        setIsGitRepo(false);
+      })
+      .finally(() => {
+        setCheckingGit(false);
+      });
+  }, [selectedProjectIds]);
 
   const filtered = useMemo(() => {
     if (!query) return allProjects;
@@ -138,6 +198,8 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
         aiProvider: aiProvider || undefined,
         projectIds: selectedProjectIds.length > 0 ? selectedProjectIds : undefined,
         workingDirectory: firstProjectPath,
+        branchName: branchName || undefined,
+        createNewBranch: createNewBranch || undefined,
       });
     } finally {
       setCreating(false);
@@ -152,13 +214,25 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
   const selectProviderAndAdvance = (idx: number) => {
     const id = enabledProviders[idx] ?? null;
     setAiProvider(id as string | null);
-    setStep(3);
+    setStep("confirm");
   };
+
+  const handleBranchSelected = useCallback((name: string, isNew: boolean) => {
+    setBranchName(name);
+    setCreateNewBranch(isNew);
+    setStep("ai");
+  }, []);
+
+  const handleBranchSkipped = useCallback(() => {
+    setBranchName(null);
+    setCreateNewBranch(false);
+    setStep("ai");
+  }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") { onClose(); return; }
 
-    if (step === 1) {
+    if (step === "projects") {
       if (e.key === "ArrowDown") {
         e.preventDefault();
         setHighlightedIndex((prev) => Math.min(prev + 1, filtered.length - 1));
@@ -174,9 +248,9 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
         toggleProject(filtered[highlightedIndex].id);
       } else if (e.key === "Enter" && highlightedIndex >= 0) {
         e.preventDefault();
-        setStep(2);
+        goNext();
       }
-    } else if (step === 2) {
+    } else if (step === "ai") {
       if (e.key === "ArrowDown" || e.key === "ArrowRight") {
         e.preventDefault();
         setHighlightedProviderIndex((prev) => (prev + 1) % enabledProviders.length);
@@ -200,19 +274,22 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
         {/* Header */}
         <div className="session-creator-header">
           <span className="session-creator-title">New Session</span>
-          <span className="session-creator-step">Step {step} of 3</span>
+          <span className="session-creator-step">Step {currentStepNumber} of {totalSteps}</span>
           <button className="close-btn settings-close" onClick={onClose}>x</button>
         </div>
 
         {/* Step indicator */}
         <div className="session-creator-steps">
-          <span className={`session-creator-step-dot ${step >= 1 ? "active" : ""}`} />
-          <span className={`session-creator-step-dot ${step >= 2 ? "active" : ""}`} />
-          <span className={`session-creator-step-dot ${step >= 3 ? "active" : ""}`} />
+          {orderedSteps.map((s, idx) => (
+            <span
+              key={s}
+              className={`session-creator-step-dot ${currentStepNumber >= idx + 1 ? "active" : ""}`}
+            />
+          ))}
         </div>
 
         {/* Step 1: Select Projects */}
-        {step === 1 && (
+        {step === "projects" && (
           <div className="session-creator-body">
             <div className="session-creator-section-title">Select Projects</div>
             <input
@@ -309,25 +386,38 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
               </button>
             </div>
             <div className="session-creator-hints">
-              <span><kbd>↑↓</kbd> navigate</span>
+              <span><kbd>&uarr;&darr;</kbd> navigate</span>
               <span><kbd>Space</kbd> toggle</span>
               <span><kbd>Enter</kbd> next</span>
               <span><kbd>Esc</kbd> close</span>
             </div>
             <div className="session-creator-actions">
-              <button className="session-creator-btn-secondary" onClick={() => { setSelectedProjectIds([]); setStep(2); }}>
+              <button className="session-creator-btn-secondary" onClick={() => { setSelectedProjectIds([]); setStep("ai"); }}>
                 Skip
               </button>
-              <button className="session-creator-btn-primary" onClick={() => setStep(2)}>
-                Next ({selectedProjectIds.length} selected)
+              <button
+                className="session-creator-btn-primary"
+                onClick={goNext}
+                disabled={checkingGit}
+              >
+                {checkingGit ? "Checking..." : `Next (${selectedProjectIds.length} selected)`}
               </button>
             </div>
           </div>
         )}
 
-        {/* Step 2: Pick AI Engine */}
-        {step === 2 && (
-          <div className="session-creator-body" ref={step2Ref} tabIndex={-1} style={{ outline: "none" }}>
+        {/* Step 2 (conditional): Select Branch */}
+        {step === "branch" && selectedProjectIds.length > 0 && (
+          <SessionBranchSelector
+            realmId={selectedProjectIds[0]}
+            onBranchSelected={handleBranchSelected}
+            onSkip={handleBranchSkipped}
+          />
+        )}
+
+        {/* Step 3: Pick AI Engine */}
+        {step === "ai" && (
+          <div className="session-creator-body" ref={aiStepRef} tabIndex={-1} style={{ outline: "none" }}>
             <div className="session-creator-section-title">AI Engine</div>
             <div className="session-creator-provider-grid">
               {AI_PROVIDERS.map((p) => {
@@ -355,23 +445,23 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
               </button>
             </div>
             <div className="session-creator-hints">
-              <span><kbd>↑↓</kbd><kbd>←→</kbd> navigate</span>
+              <span><kbd>&uarr;&darr;</kbd><kbd>&larr;&rarr;</kbd> navigate</span>
               <span><kbd>Enter</kbd> select</span>
               <span><kbd>Esc</kbd> close</span>
             </div>
             <div className="session-creator-actions">
-              <button className="session-creator-btn-secondary" onClick={() => setStep(1)}>
+              <button className="session-creator-btn-secondary" onClick={goBack}>
                 Back
               </button>
-              <button className="session-creator-btn-primary" onClick={() => setStep(3)}>
+              <button className="session-creator-btn-primary" onClick={() => setStep("confirm")}>
                 Next
               </button>
             </div>
           </div>
         )}
 
-        {/* Step 3: Confirm */}
-        {step === 3 && (
+        {/* Step 4: Confirm */}
+        {step === "confirm" && (
           <div className="session-creator-body">
             <div className="session-creator-section-title">Confirm</div>
             <div className="session-creator-summary">
@@ -381,6 +471,14 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
                   {selectedProjectNames.length > 0 ? selectedProjectNames.join(", ") : "None"}
                 </span>
               </div>
+              {branchName && (
+                <div className="session-creator-summary-row">
+                  <span className="session-creator-summary-label">Branch:</span>
+                  <span className="session-creator-summary-value">
+                    {branchName}{createNewBranch ? " (new)" : ""}
+                  </span>
+                </div>
+              )}
               <div className="session-creator-summary-row">
                 <span className="session-creator-summary-label">AI Engine:</span>
                 <span className="session-creator-summary-value">
@@ -407,7 +505,7 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
               <span><kbd>Esc</kbd> close</span>
             </div>
             <div className="session-creator-actions">
-              <button className="session-creator-btn-secondary" onClick={() => setStep(2)}>
+              <button className="session-creator-btn-secondary" onClick={() => setStep("ai")}>
                 Back
               </button>
               <button

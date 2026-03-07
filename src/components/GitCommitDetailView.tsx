@@ -7,7 +7,8 @@ import "../styles/components/GitPanel.css";
 // ─── Props ───────────────────────────────────────────────────────────
 
 interface GitCommitDetailViewProps {
-  projectPath: string;
+  sessionId: string;
+  realmId: string;
   commitHash: string;
   onClose: () => void;
 }
@@ -47,7 +48,8 @@ function statusClass(status: string): string {
 // ─── Component ───────────────────────────────────────────────────────
 
 export function GitCommitDetailView({
-  projectPath,
+  sessionId,
+  realmId,
   commitHash,
   onClose,
 }: GitCommitDetailViewProps) {
@@ -61,7 +63,7 @@ export function GitCommitDetailView({
     setLoading(true);
     setError(null);
 
-    gitCommitDetail(projectPath, commitHash)
+    gitCommitDetail(sessionId, realmId, commitHash)
       .then((d) => {
         if (!cancelled) { setDetail(d); setLoading(false); }
       })
@@ -70,7 +72,7 @@ export function GitCommitDetailView({
       });
 
     return () => { cancelled = true; };
-  }, [projectPath, commitHash]);
+  }, [sessionId, realmId, commitHash]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
