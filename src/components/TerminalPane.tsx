@@ -165,15 +165,24 @@ export function TerminalPane({ sessionId, phase, color }: TerminalPaneProps) {
                      phase === "initializing" ? "Starting shell..." :
                      phase === "error" ? "Session error" : "";
 
+  // Convert hex color to rgba with very low opacity for background tint
+  const tintStyle = color ? (() => {
+    const r = parseInt(color.slice(1, 3), 16);
+    const g = parseInt(color.slice(3, 5), 16);
+    const b = parseInt(color.slice(5, 7), 16);
+    return isNaN(r) ? undefined : { background: `rgba(${r},${g},${b},0.06)` };
+  })() : undefined;
+
   return (
     <div className="terminal-pane-wrapper">
       {showLoading && (
         <div className="terminal-loading">
-          <div className="loading-spinner" style={{ borderTopColor: color }} />
+          <div className="loading-spinner" style={{ borderTopColor: color || undefined }} />
           <span className="terminal-loading-text">{phaseLabel || "Connecting..."}</span>
         </div>
       )}
       <div className="terminal-viewport" ref={viewportRef} />
+      {tintStyle && <div className="terminal-bg-tint" style={tintStyle} />}
       {suggestionState && (
         <SuggestionOverlay state={suggestionState} />
       )}

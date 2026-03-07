@@ -385,3 +385,18 @@
   transform: scale(1.15);
 }
 
+.session-creator-color-swatch-none {
+  background: var(--bg-2);
+  border: 1px dashed var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+}
+
+.session-creator-color-swatch-none.selected {
+  border-color: var(--accent);
+  border-style: solid;
+  color: var(--accent);
+}
+

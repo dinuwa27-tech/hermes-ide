@@ -232,7 +232,7 @@ function InlineDescriptionEditor({ sessionId, description, isActive }: { session
   return null;
 }
 
-/** Color picker popover — shows a grid of preset colors. Uses fixed positioning to avoid overflow clipping. */
+/** Color picker popover — "None" + preset grid + custom hex input. Uses fixed positioning. */
 function ColorPicker({
   currentColor,
   onSelect,
@@ -246,12 +246,12 @@ function ColorPicker({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const [customHex, setCustomHex] = useState("");
 
   useEffect(() => {
     if (anchorRef?.current) {
       const rect = anchorRef.current.getBoundingClientRect();
-      // Clamp so picker doesn't overflow bottom of viewport
-      const pickerHeight = 160; // approximate height of 3-row grid
+      const pickerHeight = 200;
       const top = Math.min(rect.top, window.innerHeight - pickerHeight - 8);
       setPos({ top, left: rect.right + 6 });
     }
@@ -261,7 +261,6 @@ function ColorPicker({
     const handleMouseDown = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
     };
-    // Close on scroll so the picker doesn't drift from its anchor
     const handleScroll = () => onClose();
     document.addEventListener("mousedown", handleMouseDown);
     document.addEventListener("scroll", handleScroll, true);
@@ -271,6 +270,12 @@ function ColorPicker({
     };
   }, [onClose]);
 
+  const isValidHex = (v: string) => /^#[0-9a-fA-F]{6}$/.test(v);
+  const applyCustom = () => {
+    const hex = customHex.startsWith("#") ? customHex : `#${customHex}`;
+    if (isValidHex(hex)) { onSelect(hex); onClose(); }
+  };
+
   return (
     <div
       ref={ref}
@@ -278,15 +283,43 @@ function ColorPicker({
       style={pos ? { top: pos.top, left: pos.left } : undefined}
       onClick={(e) => e.stopPropagation()}
     >
-      {SESSION_COLORS.map((c) => (
-        <button
-          key={c}
-          className={`color-picker-swatch ${c === currentColor ? "color-picker-swatch-active" : ""}`}
-          style={{ background: c }}
-          onClick={() => { onSelect(c); onClose(); }}
-          title={c}
+      <button
+        className={`color-picker-none ${!currentColor ? "color-picker-none-active" : ""}`}
+        onClick={() => { onSelect(""); onClose(); }}
+      >
+        None
+      </button>
+      <div className="color-picker-grid">
+        {SESSION_COLORS.map((c) => (
+          <button
+            key={c}
+            className={`color-picker-swatch ${c === currentColor ? "color-picker-swatch-active" : ""}`}
+            style={{ background: c }}
+            onClick={() => { onSelect(c); onClose(); }}
+            title={c}
+          />
+        ))}
+      </div>
+      <div className="color-picker-custom">
+        <input
+          className="color-picker-hex-input"
+          placeholder="#hex"
+          value={customHex}
+          maxLength={7}
+          onChange={(e) => setCustomHex(e.target.value)}
+          onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") applyCustom(); }}
         />
-      ))}
+        {customHex && isValidHex(customHex.startsWith("#") ? customHex : `#${customHex}`) && (
+          <div className="color-picker-custom-preview" style={{ background: customHex.startsWith("#") ? customHex : `#${customHex}` }} />
+        )}
+        <button
+          className="color-picker-apply-btn"
+          onClick={applyCustom}
+          disabled={!isValidHex(customHex.startsWith("#") ? customHex : `#${customHex}`)}
+        >
+          Apply
+        </button>
+      </div>
     </div>
   );
 }
@@ -399,8 +432,12 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
   }, [sessions]);
 
   const handleProjectColorChange = useCallback((group: string, color: string) => {
-    // Update ALL sessions in this project to the new color
     const sessionsInGroup = sessions.filter((s) => s.group === group);
+    const count = sessionsInGroup.length;
+    if (count > 1) {
+      const msg = `Apply this color to all ${count} sessions in "${group}"?`;
+      if (!window.confirm(msg)) return;
+    }
     for (const s of sessionsInGroup) {
       updateSessionColor(s.id, color).catch(console.error);
     }
@@ -512,8 +549,8 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
           onContextMenu={(e) => handleContextMenu(e, session.id)}
         >
           <div
-            className="session-item-color-band"
-            style={{ background: session.phase === "destroyed" ? "var(--text-3)" : session.color }}
+            className={`session-item-color-band ${!session.color ? "session-item-color-band-empty" : ""}`}
+            style={{ background: session.phase === "destroyed" ? "var(--text-3)" : session.color || undefined }}
             onClick={(e) => {
               e.stopPropagation();
               const opening = colorPickerSessionId !== session.id;
@@ -521,7 +558,7 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
               setColorPickerGroup(null);
               if (opening) colorPickerAnchorRef.current = e.currentTarget as HTMLElement;
             }}
-            title="Change color"
+            title={session.color ? "Change color" : "Add color"}
           />
           {colorPickerSessionId === session.id && (
             <ColorPicker
@@ -681,7 +718,7 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
           const groupSessions = grouped.get(group) || [];
           const isCollapsed = collapsedGroups.has(group);
           const groupCost = groupSessions.reduce((sum, s) => sum + sessionCost(s), 0);
-          const groupColor = groupSessions.find((s) => s.phase !== "destroyed")?.color || groupSessions[0]?.color || "var(--accent)";
+          const groupColor = groupSessions.find((s) => s.phase !== "destroyed" && s.color)?.color || groupSessions.find((s) => s.color)?.color || "";
 
           return (
             <div key={group} className="project-section">
@@ -693,8 +730,8 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleGroup(group); } }}
               >
                 <div
-                  className="project-header-color-band"
-                  style={{ background: groupColor }}
+                  className={`project-header-color-band ${!groupColor ? "project-header-color-band-empty" : ""}`}
+                  style={{ background: groupColor || undefined }}
                   onClick={(e) => {
                     e.stopPropagation();
                     const opening = colorPickerGroup !== group;

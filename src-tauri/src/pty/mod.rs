@@ -2270,7 +2270,7 @@ pub fn create_session(
     let counter = mgr.session_counter;
 
     let session_label = label.unwrap_or_else(|| format!("Session {}", counter));
-    let session_color = color.unwrap_or_else(|| next_color(counter - 1));
+    let session_color = color.unwrap_or_default();
     let now_str = now();
 
     let session = Session {

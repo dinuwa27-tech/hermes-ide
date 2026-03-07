@@ -49,10 +49,8 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
   const [newProjectName, setNewProjectName] = useState("");
   const [showNewProjectInput, setShowNewProjectInput] = useState(false);
 
-  // Color selection state
-  const [selectedColor, setSelectedColor] = useState<string>(
-    () => SESSION_COLORS[Math.floor(Math.random() * SESSION_COLORS.length)]
-  );
+  // Color selection state — no color by default
+  const [selectedColor, setSelectedColor] = useState<string>("");
 
   // Branch selection state
   const [isGitRepo, setIsGitRepo] = useState(false);
@@ -631,6 +629,15 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
             <div className="session-creator-color-picker">
               <span className="session-creator-color-picker-label">Color</span>
               <div className="session-creator-color-swatches">
+                <button
+                  className={`session-creator-color-swatch session-creator-color-swatch-none ${selectedColor === "" ? "selected" : ""}`}
+                  onClick={() => setSelectedColor("")}
+                  title="No color"
+                >
+                  <svg viewBox="0 0 16 16" width="10" height="10" stroke="currentColor" strokeWidth="2" fill="none">
+                    <line x1="2" y1="2" x2="14" y2="14" />
+                  </svg>
+                </button>
                 {SESSION_COLORS.map((c) => (
                   <button
                     key={c}
