@@ -247,3 +247,89 @@
   gap: 4px;
   white-space: nowrap;
 }
+
+/* ─── Inline Project Picker (confirm step) ─────────────── */
+
+.session-creator-project-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.session-creator-project-picker-label {
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.session-creator-project-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.session-creator-project-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill, 12px);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.session-creator-project-chip:hover {
+  background: var(--bg-hover);
+  color: var(--text-0);
+  border-color: var(--border-light);
+}
+
+.session-creator-project-chip.selected {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.session-creator-project-chip svg {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.session-creator-project-chip.selected svg {
+  opacity: 1;
+}
+
+.session-creator-project-chip-new {
+  border-style: dashed;
+  color: var(--text-3);
+}
+
+.session-creator-project-chip-new:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.session-creator-project-chip-input {
+  padding: 4px 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-pill, 12px);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-0);
+  outline: none;
+  width: 120px;
+}
+
+.session-creator-project-chip-input::placeholder {
+  color: var(--text-3);
+}

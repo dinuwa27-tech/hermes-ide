@@ -1,7 +1,7 @@
 import "../styles/components/SessionList.css";
-import { useState, useMemo, useCallback, useRef } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { SessionData } from "../state/SessionContext";
-import { updateSessionGroup, updateSessionLabel } from "../api/sessions";
+import { updateSessionGroup, updateSessionLabel, updateSessionDescription } from "../api/sessions";
 import { encodeSessionDrag, setDraggedSession } from "./SplitPane";
 import { useContextMenu, buildSessionMenuItems, buildEmptyAreaMenuItems } from "../hooks/useContextMenu";
 import { fmt } from "../utils/platform";
@@ -91,12 +91,206 @@ function SessionItemGitInfo({ sessionId, isDestroyed }: { sessionId: string; isD
   );
 }
 
+/** Inline editable name field — activates on double-click or via ref trigger. */
+function InlineNameEditor({ sessionId, label, triggerEdit }: { sessionId: string; label: string; triggerEdit: boolean }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(label);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (triggerEdit) {
+      setEditing(true);
+      setValue(label);
+    }
+  }, [triggerEdit]);
+
+  useEffect(() => {
+    if (editing) inputRef.current?.select();
+  }, [editing]);
+
+  const commit = useCallback(() => {
+    setEditing(false);
+    if (value.trim() && value.trim() !== label) {
+      updateSessionLabel(sessionId, value.trim()).catch(console.error);
+    }
+  }, [sessionId, label, value]);
+
+  if (!editing) {
+    return (
+      <div
+        className="session-item-name session-item-editable"
+        onDoubleClick={(e) => { e.stopPropagation(); setEditing(true); setValue(label); }}
+        title="Double-click to rename"
+      >
+        <span className="session-item-editable-text">{label}</span>
+        <svg className="session-item-edit-icon" viewBox="0 0 16 16" fill="currentColor" width="10" height="10">
+          <path d="M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 0 1-.927-.928l.929-3.25c.081-.286.235-.547.445-.758l8.61-8.61Zm1.414 1.06a.25.25 0 0 0-.354 0L3.463 11.1l-.47 1.642 1.643-.47 8.61-8.61a.25.25 0 0 0 0-.354l-1.086-1.086Z" />
+        </svg>
+      </div>
+    );
+  }
+
+  return (
+    <input
+      ref={inputRef}
+      className="session-item-name-input"
+      value={value}
+      autoFocus
+      onChange={(e) => setValue(e.target.value)}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") commit();
+        if (e.key === "Escape") setEditing(false);
+      }}
+      onBlur={commit}
+      onClick={(e) => e.stopPropagation()}
+    />
+  );
+}
+
+/** Inline editable description — click to edit, shows placeholder when empty on active session. */
+function InlineDescriptionEditor({ sessionId, description, isActive }: { sessionId: string; description: string; isActive: boolean }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(description);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (editing && textareaRef.current) {
+      textareaRef.current.select();
+      // Auto-size to content
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = textareaRef.current.scrollHeight + "px";
+    }
+  }, [editing]);
+
+  const commit = useCallback(() => {
+    setEditing(false);
+    const trimmed = value.trim();
+    if (trimmed !== description) {
+      updateSessionDescription(sessionId, trimmed).catch(console.error);
+    }
+  }, [sessionId, description, value]);
+
+  if (editing) {
+    return (
+      <textarea
+        ref={textareaRef}
+        className="session-item-description-input"
+        value={value}
+        autoFocus
+        placeholder="Add description..."
+        maxLength={120}
+        rows={1}
+        onChange={(e) => {
+          setValue(e.target.value);
+          // Auto-resize
+          e.target.style.height = "auto";
+          e.target.style.height = e.target.scrollHeight + "px";
+        }}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); commit(); }
+          if (e.key === "Escape") { setValue(description); setEditing(false); }
+        }}
+        onBlur={commit}
+        onClick={(e) => e.stopPropagation()}
+      />
+    );
+  }
+
+  if (description) {
+    return (
+      <div
+        className="session-item-description"
+        onClick={(e) => { e.stopPropagation(); setEditing(true); setValue(description); }}
+        title="Click to edit description"
+      >
+        {description}
+      </div>
+    );
+  }
+
+  // Show placeholder only for the active session
+  if (isActive) {
+    return (
+      <div
+        className="session-item-description session-item-description-placeholder"
+        onClick={(e) => { e.stopPropagation(); setEditing(true); setValue(""); }}
+      >
+        Add description...
+      </div>
+    );
+  }
+
+  return null;
+}
+
+/** Inline editable project name — double-click to rename, same pattern as session names. */
+function InlineProjectNameEditor({
+  group,
+  onRename,
+}: {
+  group: string;
+  onRename: (oldName: string, newName: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(group);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) inputRef.current?.select();
+  }, [editing]);
+
+  const commit = useCallback(() => {
+    setEditing(false);
+    const trimmed = value.trim();
+    if (trimmed && trimmed !== group) {
+      onRename(group, trimmed);
+    }
+  }, [group, value, onRename]);
+
+  if (!editing) {
+    return (
+      <span
+        className="project-header-name project-header-name-editable"
+        onDoubleClick={(e) => { e.stopPropagation(); setEditing(true); setValue(group); }}
+        title="Double-click to rename project"
+      >
+        {group}
+        <svg className="project-header-edit-icon" viewBox="0 0 16 16" fill="currentColor" width="10" height="10">
+          <path d="M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 0 1-.927-.928l.929-3.25c.081-.286.235-.547.445-.758l8.61-8.61Zm1.414 1.06a.25.25 0 0 0-.354 0L3.463 11.1l-.47 1.642 1.643-.47 8.61-8.61a.25.25 0 0 0 0-.354l-1.086-1.086Z" />
+        </svg>
+      </span>
+    );
+  }
+
+  return (
+    <input
+      ref={inputRef}
+      className="project-header-name-input"
+      value={value}
+      autoFocus
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => setValue(e.target.value)}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") commit();
+        if (e.key === "Escape") setEditing(false);
+      }}
+      onBlur={commit}
+    />
+  );
+}
+
 export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNewSession, activeView, onViewChange, gitBadge }: SessionListProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [renameSessionId, setRenameSessionId] = useState<string | null>(null);
   const [newGroupSessionId, setNewGroupSessionId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState("");
   const [newGroupName, setNewGroupName] = useState("");
+  // Move-to-project dropdown for a specific session
+  const [moveSessionId, setMoveSessionId] = useState<string | null>(null);
+  const [moveNewName, setMoveNewName] = useState("");
+  const [showMoveNewInput, setShowMoveNewInput] = useState(false);
 
   // Track which session was right-clicked for action handlers
   const contextSessionRef = useRef<string | null>(null);
@@ -131,7 +325,6 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
     if (!sid) return;
     if (actionId === "session.rename") {
       setRenameSessionId(sid);
-      setRenameValue("");
     } else if (actionId === "session.new-group") {
       setNewGroupSessionId(sid);
       setNewGroupName("");
@@ -148,6 +341,14 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
   }, [onClose]);
 
   const { showMenu } = useContextMenu(handleContextAction);
+
+  const handleRenameProject = useCallback((oldName: string, newName: string) => {
+    // Rename a project = move all sessions from the old group to the new group
+    const sessionsInGroup = sessions.filter((s) => s.group === oldName);
+    for (const s of sessionsInGroup) {
+      updateSessionGroup(s.id, newName).catch(console.error);
+    }
+  }, [sessions]);
 
   const handleEmptyAreaAction = useCallback((actionId: string) => {
     if (actionId === "empty.new-session") {
@@ -212,6 +413,12 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
 
   const renderSession = (session: SessionData, idx: number) => {
     const isActive = session.id === activeSessionId;
+    // Trigger inline rename when context menu "Rename..." is used
+    const shouldTriggerRename = renameSessionId === session.id;
+    if (shouldTriggerRename) {
+      // Clear after triggering (one-shot)
+      requestAnimationFrame(() => setRenameSessionId(null));
+    }
     return (
       <div key={session.id} className={`session-item-wrapper${isActive ? " session-item-wrapper-active" : ""}`}>
         <div
@@ -226,7 +433,8 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
             <span className="session-number">{idx < 9 ? idx + 1 : ""}</span>
           </div>
           <div className="session-item-info">
-            <div className="session-item-name">{session.label}</div>
+            <InlineNameEditor sessionId={session.id} label={session.label} triggerEdit={shouldTriggerRename} />
+            <InlineDescriptionEditor sessionId={session.id} description={session.description} isActive={isActive} />
             <div className="session-item-meta">
               {session.detected_agent && (
                 <span className="session-agent-tag">{session.detected_agent.name}</span>
@@ -237,6 +445,31 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
               <span className="session-age">{timeAgo(session.last_activity_at)}</span>
             </div>
             <SessionItemGitInfo sessionId={session.id} isDestroyed={session.phase === "destroyed"} />
+            {/* Inline project tag */}
+            {session.phase !== "destroyed" && (
+              <div className="session-item-project-row">
+                {session.group ? (
+                  <span
+                    className="session-item-project-tag"
+                    onClick={(e) => { e.stopPropagation(); setMoveSessionId(moveSessionId === session.id ? null : session.id); setShowMoveNewInput(false); }}
+                    title="Click to change project"
+                  >
+                    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="10" height="10">
+                      <path d="M2 5C2 3.9 2.9 3 4 3H7L9 5H14C15.1 5 16 5.9 16 7V13C16 14.1 15.1 15 14 15H4C2.9 15 2 14.1 2 13V5Z" />
+                    </svg>
+                    {session.group}
+                  </span>
+                ) : allGroups.length > 0 ? (
+                  <button
+                    className="session-item-project-assign"
+                    onClick={(e) => { e.stopPropagation(); setMoveSessionId(moveSessionId === session.id ? null : session.id); setShowMoveNewInput(false); }}
+                    title="Assign to a project"
+                  >
+                    + Project
+                  </button>
+                ) : null}
+              </div>
+            )}
           </div>
           <button
             className="session-item-close"
@@ -244,6 +477,56 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
             title="End session"
           >&times;</button>
         </div>
+        {/* Move-to-project dropdown */}
+        {moveSessionId === session.id && (
+          <div className="session-move-project-dropdown" onClick={(e) => e.stopPropagation()}>
+            <button
+              className={`session-move-project-option ${!session.group ? "active" : ""}`}
+              onClick={() => { updateSessionGroup(session.id, null).catch(console.error); setMoveSessionId(null); }}
+            >
+              No Project
+            </button>
+            {allGroups.map((g) => (
+              <button
+                key={g}
+                className={`session-move-project-option ${session.group === g ? "active" : ""}`}
+                onClick={() => { updateSessionGroup(session.id, g).catch(console.error); setMoveSessionId(null); }}
+              >
+                <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="11" height="11">
+                  <path d="M2 5C2 3.9 2.9 3 4 3H7L9 5H14C15.1 5 16 5.9 16 7V13C16 14.1 15.1 15 14 15H4C2.9 15 2 14.1 2 13V5Z" />
+                </svg>
+                {g}
+              </button>
+            ))}
+            {!showMoveNewInput ? (
+              <button
+                className="session-move-project-option session-move-project-new"
+                onClick={() => { setShowMoveNewInput(true); setMoveNewName(""); }}
+              >
+                + New Project
+              </button>
+            ) : (
+              <input
+                className="session-move-project-input"
+                autoFocus
+                placeholder="Project name..."
+                value={moveNewName}
+                onChange={(e) => setMoveNewName(e.target.value)}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === "Enter" && moveNewName.trim()) {
+                    updateSessionGroup(session.id, moveNewName.trim()).catch(console.error);
+                    setMoveSessionId(null);
+                    setShowMoveNewInput(false);
+                    setMoveNewName("");
+                  }
+                  if (e.key === "Escape") { setShowMoveNewInput(false); setMoveNewName(""); }
+                }}
+                onBlur={() => { setShowMoveNewInput(false); setMoveNewName(""); }}
+              />
+            )}
+          </div>
+        )}
         {/* Sub-view toolbar — only shown for the active session */}
         {isActive && session.phase !== "destroyed" && (
           <div className="session-subviews">
@@ -310,73 +593,91 @@ export function SessionList({ sessions, activeSessionId, onSelect, onClose, onNe
           <div className="session-list-empty">No active sessions<br/><span className="text-muted">Press {fmt("{mod}N")} to create one</span></div>
         )}
 
-        {/* Ungrouped sessions first */}
-        {(grouped.get(null) || []).map((session) => {
-          return renderSession(session, sessionIndexMap.get(session.id) ?? 0);
-        })}
-
-        {/* Grouped sessions */}
+        {/* Projects (groups) first */}
         {allGroups.map((group) => {
           const groupSessions = grouped.get(group) || [];
           const isCollapsed = collapsedGroups.has(group);
           const groupCost = groupSessions.reduce((sum, s) => sum + sessionCost(s), 0);
 
           return (
-            <div key={group}>
+            <div key={group} className="project-section">
               <div
-                className="session-group-header"
+                className="project-header"
                 role="button"
                 tabIndex={0}
                 onClick={() => toggleGroup(group)}
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleGroup(group); } }}
               >
-                <span>
-                  {isCollapsed ? "▸" : "▾"} {group} ({groupSessions.length})
-                </span>
-                {groupCost > 0 && (
-                  <span className="session-group-cost">{formatCost(groupCost)}</span>
-                )}
+                <div className="project-header-left">
+                  <span className="project-header-chevron">{isCollapsed ? "▸" : "▾"}</span>
+                  <svg className="project-header-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
+                    <path d="M2 5C2 3.9 2.9 3 4 3H7L9 5H14C15.1 5 16 5.9 16 7V13C16 14.1 15.1 15 14 15H4C2.9 15 2 14.1 2 13V5Z" />
+                  </svg>
+                  <InlineProjectNameEditor group={group} onRename={handleRenameProject} />
+                  <span className="project-header-count">{groupSessions.length}</span>
+                </div>
+                <div className="project-header-right">
+                  {groupCost > 0 && (
+                    <span className="project-header-cost">{formatCost(groupCost)}</span>
+                  )}
+                  <button
+                    className="project-header-add-btn"
+                    onClick={(e) => { e.stopPropagation(); onNewSession?.(); }}
+                    title="New session in this project"
+                  >+</button>
+                </div>
               </div>
-              {!isCollapsed && groupSessions.map((session) => {
-                return renderSession(session, sessionIndexMap.get(session.id) ?? 0);
-              })}
+              {!isCollapsed && (
+                <div className="project-sessions">
+                  {groupSessions.map((session) => {
+                    return renderSession(session, sessionIndexMap.get(session.id) ?? 0);
+                  })}
+                </div>
+              )}
             </div>
           );
         })}
+
+        {/* Ungrouped sessions at bottom */}
+        {(grouped.get(null) || []).length > 0 && allGroups.length > 0 && (
+          <div className="ungrouped-divider">
+            <span>Ungrouped</span>
+          </div>
+        )}
+        {(grouped.get(null) || []).map((session) => {
+          return renderSession(session, sessionIndexMap.get(session.id) ?? 0);
+        })}
       </div>
 
-      {/* Inline rename input (appears after native popup "Rename..." action) */}
-      {renameSessionId && (
-        <div className="session-inline-input-overlay" onClick={() => setRenameSessionId(null)}>
-          <div className="session-inline-input" onClick={(e) => e.stopPropagation()}>
-            <input
-              autoFocus
-              placeholder="New name..."
-              value={renameValue}
-              onChange={(e) => setRenameValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && renameValue.trim()) {
-                  updateSessionLabel(renameSessionId, renameValue.trim()).catch(console.error);
-                  setRenameSessionId(null);
-                }
-                if (e.key === "Escape") setRenameSessionId(null);
-              }}
-            />
-          </div>
-        </div>
-      )}
+      {/* Sidebar footer: New Project button */}
+      <div className="session-list-footer">
+        <button
+          className="session-list-new-project-btn"
+          onClick={() => { setNewGroupSessionId("__global__"); setNewGroupName(""); }}
+        >
+          <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="12" height="12">
+            <path d="M2 5C2 3.9 2.9 3 4 3H7L9 5H14C15.1 5 16 5.9 16 7V13C16 14.1 15.1 15 14 15H4C2.9 15 2 14.1 2 13V5Z" />
+          </svg>
+          New Project
+        </button>
+      </div>
+
       {/* Inline new group input */}
       {newGroupSessionId && (
         <div className="session-inline-input-overlay" onClick={() => setNewGroupSessionId(null)}>
           <div className="session-inline-input" onClick={(e) => e.stopPropagation()}>
             <input
               autoFocus
-              placeholder="Group name..."
+              placeholder="Project name..."
               value={newGroupName}
               onChange={(e) => setNewGroupName(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && newGroupName.trim()) {
-                  updateSessionGroup(newGroupSessionId, newGroupName.trim()).catch(console.error);
+                  if (newGroupSessionId !== "__global__") {
+                    updateSessionGroup(newGroupSessionId, newGroupName.trim()).catch(console.error);
+                  }
+                  // If __global__, we just create the project name — it will appear
+                  // when a session is assigned to it. The name is now in the groups list.
                   setNewGroupSessionId(null);
                 }
                 if (e.key === "Escape") setNewGroupSessionId(null);

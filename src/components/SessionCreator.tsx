@@ -4,6 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { Project } from "../hooks/useSessionProjects";
 import { CreateSessionOpts } from "../state/SessionContext";
 import { getProjects, createProject, deleteProject } from "../api/projects";
+import { getSessions } from "../api/sessions";
 import { gitListBranchesForRealm } from "../api/git";
 import { LANG_COLORS } from "../utils/langColors";
 import { SessionBranchSelector } from "./SessionBranchSelector";
@@ -29,6 +30,7 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
   const [aiProvider, setAiProvider] = useState<string | null>(null);
   const [label, setLabel] = useState("");
+  const [description, setDescription] = useState("");
   const [allProjects, setAllProjects] = useState<Project[]>([]);
   const [query, setQuery] = useState("");
   const [scanPath, setScanPath] = useState("");
@@ -41,6 +43,11 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
   const aiStepRef = useRef<HTMLDivElement>(null);
   const labelRef = useRef<HTMLInputElement>(null);
 
+  // Project (group) assignment state
+  const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
+  const [newProjectName, setNewProjectName] = useState("");
+  const [showNewProjectInput, setShowNewProjectInput] = useState(false);
+
   // Branch selection state
   const [isGitRepo, setIsGitRepo] = useState(false);
   const [checkingGit, setCheckingGit] = useState(false);
@@ -49,6 +56,9 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
 
   // Determine whether to show the branch step
   const showBranchStep = isGitRepo && selectedProjectIds.length > 0;
+
+  // Existing project groups (from current sessions)
+  const [existingGroups, setExistingGroups] = useState<string[]>([]);
 
   // Compute ordered steps for display
   const orderedSteps = useMemo<Step[]>(() => {
@@ -79,6 +89,12 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
     getProjects()
       .then((r) => setAllProjects(r))
       .catch((err) => console.warn("[SessionCreator] Failed to load projects:", err));
+    getSessions()
+      .then((sessions) => {
+        const groups = [...new Set(sessions.map((s) => s.group).filter((g): g is string => !!g))].sort();
+        setExistingGroups(groups);
+      })
+      .catch((err) => console.warn("[SessionCreator] Failed to load sessions:", err));
   }, []);
 
   useEffect(() => {
@@ -89,7 +105,10 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
       const currentIdx = allItems.findIndex((p) => p.id === aiProvider);
       setHighlightedProviderIndex(currentIdx >= 0 ? currentIdx : allItems.length - 1);
     }
-    if (step === "confirm") labelRef.current?.focus();
+    if (step === "confirm") {
+      labelRef.current?.focus();
+      setShowNewProjectInput(false);
+    }
   }, [step]);
 
   useEffect(() => {
@@ -195,6 +214,8 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
         : undefined;
       await onCreate({
         label: label || undefined,
+        description: description || undefined,
+        group: selectedGroup || undefined,
         aiProvider: aiProvider || undefined,
         projectIds: selectedProjectIds.length > 0 ? selectedProjectIds : undefined,
         workingDirectory: firstProjectPath,
@@ -291,11 +312,11 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
         {/* Step 1: Select Projects */}
         {step === "projects" && (
           <div className="session-creator-body">
-            <div className="session-creator-section-title">Select Projects</div>
+            <div className="session-creator-section-title">Select Folders</div>
             <input
               ref={searchRef}
               className="command-palette-input"
-              placeholder="Filter projects..."
+              placeholder="Filter folders..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               autoComplete="off"
@@ -306,12 +327,12 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
             <div className="session-creator-list" ref={listRef}>
               {filtered.length === 0 && !query && (
                 <div className="workspace-empty">
-                  No projects found. Scan a directory below to add one.
+                  No folders found. Scan a directory below to add one.
                 </div>
               )}
               {filtered.length === 0 && query && (
                 <div className="command-palette-empty">
-                  No projects matching &ldquo;{query}&rdquo;
+                  No folders matching &ldquo;{query}&rdquo;
                 </div>
               )}
               {filtered.map((project, idx) => (
@@ -349,7 +370,7 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
                   <button
                     className="session-creator-remove-btn"
                     onClick={(e) => { e.stopPropagation(); removeProject(project.id); }}
-                    title="Remove project"
+                    title="Remove folder"
                   >
                     x
                   </button>
@@ -466,7 +487,7 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
             <div className="session-creator-section-title">Confirm</div>
             <div className="session-creator-summary">
               <div className="session-creator-summary-row">
-                <span className="session-creator-summary-label">Projects:</span>
+                <span className="session-creator-summary-label">Folders:</span>
                 <span className="session-creator-summary-value">
                   {selectedProjectNames.length > 0 ? selectedProjectNames.join(", ") : "None"}
                 </span>
@@ -489,7 +510,7 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
             <input
               ref={labelRef}
               className="command-palette-input"
-              placeholder="Session label (optional)"
+              placeholder="Session name (optional)"
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               onKeyDown={(e) => {
@@ -500,12 +521,96 @@ export function SessionCreator({ onClose, onCreate }: SessionCreatorProps) {
               autoCapitalize="off"
               spellCheck={false}
             />
+            <input
+              className="command-palette-input"
+              placeholder="Description (optional)"
+              value={description}
+              maxLength={120}
+              onChange={(e) => setDescription(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !creating) handleConfirm();
+              }}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+            />
+
+            {/* Inline project assignment */}
+            <div className="session-creator-project-picker">
+              <span className="session-creator-project-picker-label">Project</span>
+              <div className="session-creator-project-chips">
+                <button
+                  className={`session-creator-project-chip ${selectedGroup === null ? "selected" : ""}`}
+                  onClick={() => setSelectedGroup(null)}
+                >
+                  None
+                </button>
+                {existingGroups.map((group) => (
+                  <button
+                    key={group}
+                    className={`session-creator-project-chip ${selectedGroup === group ? "selected" : ""}`}
+                    onClick={() => setSelectedGroup(group)}
+                  >
+                    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="11" height="11">
+                      <path d="M2 5C2 3.9 2.9 3 4 3H7L9 5H14C15.1 5 16 5.9 16 7V13C16 14.1 15.1 15 14 15H4C2.9 15 2 14.1 2 13V5Z" />
+                    </svg>
+                    {group}
+                  </button>
+                ))}
+                {!showNewProjectInput ? (
+                  <button
+                    className="session-creator-project-chip session-creator-project-chip-new"
+                    onClick={() => { setShowNewProjectInput(true); setNewProjectName(""); }}
+                  >
+                    + New
+                  </button>
+                ) : (
+                  <input
+                    className="session-creator-project-chip-input"
+                    autoFocus
+                    placeholder="Project name..."
+                    value={newProjectName}
+                    onChange={(e) => setNewProjectName(e.target.value)}
+                    onKeyDown={(e) => {
+                      e.stopPropagation();
+                      if (e.key === "Enter" && newProjectName.trim()) {
+                        const name = newProjectName.trim();
+                        if (!existingGroups.includes(name)) {
+                          setExistingGroups((prev) => [...prev, name].sort());
+                        }
+                        setSelectedGroup(name);
+                        setShowNewProjectInput(false);
+                        setNewProjectName("");
+                      }
+                      if (e.key === "Escape") {
+                        setShowNewProjectInput(false);
+                        setNewProjectName("");
+                      }
+                    }}
+                    onBlur={() => {
+                      if (newProjectName.trim()) {
+                        const name = newProjectName.trim();
+                        if (!existingGroups.includes(name)) {
+                          setExistingGroups((prev) => [...prev, name].sort());
+                        }
+                        setSelectedGroup(name);
+                      }
+                      setShowNewProjectInput(false);
+                      setNewProjectName("");
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                )}
+              </div>
+            </div>
+
             <div className="session-creator-hints">
               <span><kbd>Enter</kbd> create</span>
               <span><kbd>Esc</kbd> close</span>
             </div>
             <div className="session-creator-actions">
-              <button className="session-creator-btn-secondary" onClick={() => setStep("ai")}>
+              <button className="session-creator-btn-secondary" onClick={goBack}>
                 Back
               </button>
               <button
