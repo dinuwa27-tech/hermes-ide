@@ -128,6 +128,26 @@ export interface CreateSessionOpts {
   createNewBranch?: boolean;
 }
 
+// ─── Workspace Restore ──────────────────────────────────────────────
+
+export interface SavedSessionInfo {
+  id: string;
+  label: string;
+  description: string;
+  color: string;
+  group: string | null;
+  working_directory: string;
+  ai_provider: string | null;
+  project_ids: string[];
+}
+
+export interface SavedWorkspace {
+  sessions: SavedSessionInfo[];
+  layout: unknown; // serialized LayoutNode
+  focused_pane_id: string | null;
+  active_session_id: string | null;
+}
+
 // ─── Session Action (reducer) ────────────────────────────────────────
 
 import type { SplitDirection } from "../state/layoutTypes";
@@ -176,4 +196,6 @@ export type SessionAction =
   | { type: "SET_SUBVIEW_PANEL"; panel: "git" | "files" | "search" | null }
   // Composer actions
   | { type: "OPEN_COMPOSER" }
-  | { type: "CLOSE_COMPOSER" };
+  | { type: "CLOSE_COMPOSER" }
+  // Workspace restore
+  | { type: "RESTORE_LAYOUT"; root: unknown; focusedPaneId: string | null; activeSessionId: string | null };

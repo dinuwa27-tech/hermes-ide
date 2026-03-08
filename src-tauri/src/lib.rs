@@ -9,7 +9,10 @@ mod workspace;
 
 use std::collections::HashSet;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Manager;
+
+static WORKSPACE_SAVED: AtomicBool = AtomicBool::new(false);
 
 /// Clean up worktrees whose sessions no longer exist.
 ///
@@ -86,6 +89,54 @@ pub struct AppState {
     pub sys: Mutex<sysinfo::System>,
 }
 
+/// Save scrollback snapshots and session metadata to DB on close.
+/// The frontend auto-save handles `saved_workspace` (with layout data).
+fn do_save_workspace(app: &tauri::AppHandle) {
+    let state = match app.try_state::<AppState>() {
+        Some(s) => s,
+        None => return,
+    };
+    let mgr = match state.pty_manager.lock() {
+        Ok(m) => m,
+        Err(_) => return,
+    };
+    let db = match state.db.lock() {
+        Ok(d) => d,
+        Err(_) => return,
+    };
+
+    for (session_id, pty_session) in &mgr.sessions {
+        // Save session metadata first (INSERT OR REPLACE resets the row)
+        if let Ok(s) = pty_session.session.lock() {
+            let update = pty::SessionUpdate::from(&*s);
+            db.create_session_v2(&update).ok();
+        }
+
+        // Save scrollback snapshot AFTER metadata (since create_session_v2 replaces the row)
+        if let Ok(analyzer) = pty_session.analyzer.lock() {
+            let snapshot = analyzer.get_stripped_output();
+            db.save_session_snapshot(session_id, &snapshot).ok();
+
+            let metrics = analyzer.to_metrics();
+            for (provider, tokens) in &metrics.token_usage {
+                db.record_token_usage(
+                    session_id, provider, &tokens.model,
+                    tokens.input_tokens as i64, tokens.output_tokens as i64,
+                    tokens.estimated_cost_usd,
+                ).ok();
+            }
+        }
+    }
+}
+
+/// Save workspace on close — full save with snapshots, runs once.
+fn save_workspace_state(app: &tauri::AppHandle) {
+    if WORKSPACE_SAVED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    do_save_workspace(app);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     env_logger::init();
@@ -127,6 +178,19 @@ pub fn run() {
 
             app.manage(state);
 
+            // Save workspace when the main window is about to close
+            let save_handle = app.handle().clone();
+            if let Some(window) = app.get_webview_window("main") {
+                window.on_window_event(move |event| {
+                    match event {
+                        tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed => {
+                            save_workspace_state(&save_handle);
+                        }
+                        _ => {}
+                    }
+                });
+            }
+
             // Build and set native menu bar
             let handle = app.handle().clone();
             match menu::build_app_menu(&handle) {
@@ -156,6 +220,7 @@ pub fn run() {
             pty::nudge_realm_context,
             pty::resize_session,
             pty::close_session,
+            pty::save_all_snapshots,
             pty::get_sessions,
             pty::get_session_detail,
             pty::get_session_metadata,
@@ -268,6 +333,27 @@ pub fn run() {
             menu::show_context_menu,
             menu::update_menu_state,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running HERMES-IDE");
+        .build(tauri::generate_context!())
+        .expect("error while building HERMES-IDE")
+        .run(|app, event| {
+            match &event {
+                tauri::RunEvent::ExitRequested { .. } => {
+                    eprintln!("[hermes] ExitRequested — saving workspace");
+                    save_workspace_state(app);
+                }
+                tauri::RunEvent::Exit => {
+                    eprintln!("[hermes] Exit — saving workspace");
+                    save_workspace_state(app);
+                }
+                tauri::RunEvent::WindowEvent { event: tauri::WindowEvent::CloseRequested { .. }, .. } => {
+                    eprintln!("[hermes] WindowCloseRequested — saving workspace");
+                    save_workspace_state(app);
+                }
+                tauri::RunEvent::WindowEvent { event: tauri::WindowEvent::Destroyed, .. } => {
+                    eprintln!("[hermes] WindowDestroyed — saving workspace");
+                    save_workspace_state(app);
+                }
+                _ => {}
+            }
+        });
 }

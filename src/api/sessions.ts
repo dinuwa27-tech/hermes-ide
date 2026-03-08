@@ -57,3 +57,7 @@ export function addWorkspacePath(sessionId: string, path: string): Promise<void>
 export function writeToSession(sessionId: string, data: string): Promise<void> {
   return invoke("write_to_session", { sessionId, data });
 }
+
+export function saveAllSnapshots(): Promise<void> {
+  return invoke("save_all_snapshots");
+}

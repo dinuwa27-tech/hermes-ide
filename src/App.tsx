@@ -46,7 +46,7 @@ import { WhatsNewDialog } from "./components/WhatsNewDialog";
 import { OnboardingWizard } from "./components/OnboardingWizard";
 
 function AppContent() {
-  const { state, dispatch, createSession, closeSession, requestCloseSession, setActive } = useSession();
+  const { state, dispatch, createSession, closeSession, requestCloseSession, setActive, saveWorkspace } = useSession();
   const activeSession = useActiveSession();
   const sessions = useSessionList();
   const { ui } = state;
@@ -176,6 +176,40 @@ function AppContent() {
     const suppress = (e: Event) => { e.preventDefault(); };
     document.addEventListener("contextmenu", suppress, true);
     return () => document.removeEventListener("contextmenu", suppress, true);
+  }, []);
+
+  // ── Save workspace before app close ──
+  // Intercept the window close event to persist session state for restore on next launch.
+  // Uses both Tauri's onCloseRequested (primary) and browser beforeunload (fallback).
+  const saveWorkspaceRef = useRef(saveWorkspace);
+  saveWorkspaceRef.current = saveWorkspace;
+  const workspaceSavedRef = useRef(false);
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    getCurrentWindow().onCloseRequested(async (event) => {
+      if (workspaceSavedRef.current) return; // Already saved, let it close
+      event.preventDefault();
+      workspaceSavedRef.current = true;
+      try {
+        await saveWorkspaceRef.current();
+      } catch (err) {
+        console.error("[App] Failed to save workspace on close:", err);
+      }
+      getCurrentWindow().destroy();
+    }).then((u) => { unlisten = u; });
+
+    // Fallback: browser beforeunload — fire-and-forget save
+    const onBeforeUnload = () => {
+      if (workspaceSavedRef.current) return;
+      workspaceSavedRef.current = true;
+      saveWorkspaceRef.current().catch(console.error);
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+
+    return () => {
+      unlisten?.();
+      window.removeEventListener("beforeunload", onBeforeUnload);
+    };
   }, []);
 
   // Tauri drag-drop for empty container (no panes) — session drop creates first pane
@@ -471,7 +505,10 @@ function AppContent() {
         onDismiss={updater.dismiss}
         onDownload={updater.download}
         onCancel={updater.cancelDownload}
-        onInstall={updater.installAndRelaunch}
+        onInstall={async () => {
+          await saveWorkspace();
+          await updater.installAndRelaunch();
+        }}
       />
 
       <OnboardingWizard />

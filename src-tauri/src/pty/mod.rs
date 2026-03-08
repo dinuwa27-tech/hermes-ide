@@ -1413,7 +1413,7 @@ struct CommandPredictionEvent {
 
 // ─── Output Analyzer (uses Provider Registry) ───────────────────────
 
-struct OutputAnalyzer {
+pub(crate) struct OutputAnalyzer {
     registry: ProviderRegistry,
     active_provider_idx: Option<usize>,
     stripped_buffer: String,
@@ -1871,7 +1871,7 @@ impl OutputAnalyzer {
         self.pending_cwd.take()
     }
 
-    fn to_metrics(&self) -> SessionMetrics {
+    pub(crate) fn to_metrics(&self) -> SessionMetrics {
         let usage = self.token_usage.clone();
 
         SessionMetrics {
@@ -1893,7 +1893,7 @@ impl OutputAnalyzer {
         }
     }
 
-    fn get_stripped_output(&self) -> String {
+    pub(crate) fn get_stripped_output(&self) -> String {
         self.stripped_buffer.clone()
     }
 }
@@ -2147,11 +2147,11 @@ fn percentile(samples: &VecDeque<f64>, pct: f64) -> Option<f64> {
 
 // ─── PTY Session & Manager ──────────────────────────────────────────
 
-struct PtySession {
+pub(crate) struct PtySession {
     master: Box<dyn MasterPty + Send>,
     writer: Arc<StdMutex<Box<dyn Write + Send>>>,
-    session: Arc<StdMutex<Session>>,
-    analyzer: Arc<StdMutex<OutputAnalyzer>>,
+    pub(crate) session: Arc<StdMutex<Session>>,
+    pub(crate) analyzer: Arc<StdMutex<OutputAnalyzer>>,
     child: Box<dyn portable_pty::Child + Send>,
 }
 
@@ -2179,7 +2179,7 @@ fn ai_launch_command(provider: &str, auto_approve: bool) -> Option<String> {
 }
 
 pub struct PtyManager {
-    sessions: HashMap<String, PtySession>,
+    pub(crate) sessions: HashMap<String, PtySession>,
     session_counter: usize,
 }
 
@@ -3028,6 +3028,40 @@ pub fn get_sessions(state: State<'_, AppState>) -> Result<Vec<SessionUpdate>, St
     Ok(mgr.sessions.values().filter_map(|ps| {
         ps.session.lock().ok().map(|s| SessionUpdate::from(&*s))
     }).collect())
+}
+
+/// Save scrollback snapshots for ALL live sessions without closing them.
+/// Used before app quit / update relaunch so sessions can be restored on next launch.
+#[tauri::command]
+pub fn save_all_snapshots(state: State<'_, AppState>) -> Result<(), String> {
+    let mgr = state.pty_manager.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+
+    for (session_id, pty_session) in &mgr.sessions {
+        // Save session metadata first (INSERT OR REPLACE resets the row)
+        if let Ok(s) = pty_session.session.lock() {
+            let update = SessionUpdate::from(&*s);
+            db.create_session_v2(&update).ok();
+        }
+
+        // Save snapshot AFTER metadata to avoid INSERT OR REPLACE wiping it
+        if let Ok(analyzer) = pty_session.analyzer.lock() {
+            let snapshot = analyzer.get_stripped_output();
+            db.save_session_snapshot(session_id, &snapshot).ok();
+
+            // Persist token usage
+            let metrics = analyzer.to_metrics();
+            for (provider, tokens) in &metrics.token_usage {
+                db.record_token_usage(
+                    session_id, provider, &tokens.model,
+                    tokens.input_tokens as i64, tokens.output_tokens as i64,
+                    tokens.estimated_cost_usd,
+                ).ok();
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[tauri::command]

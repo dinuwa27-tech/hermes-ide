@@ -1,13 +1,17 @@
 import { createContext, useContext, useReducer, useEffect, useCallback, useMemo, useRef, ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
+
+// Module-level guard to prevent React StrictMode from double-restoring sessions
+let workspaceRestoreStarted = false;
 import {
   createSession as apiCreateSession, closeSession as apiCloseSession,
   getSessions, getRecentSessions, getSessionSnapshot,
   updateSessionDescription, updateSessionGroup,
+  saveAllSnapshots,
 } from "../api/sessions";
 import { getProjects, getSessionProjects, attachSessionProject, nudgeProjectContext } from "../api/projects";
 import { createWorktree } from "../api/git";
-import { getSettings, getSetting } from "../api/settings";
+import { getSettings, getSetting, setSetting } from "../api/settings";
 import { createTerminal, destroy as destroyTerminal, writeScrollback } from "../terminal/TerminalPool";
 import { applyTheme } from "../utils/themeManager";
 import { restoreWindowState } from "../utils/windowState";
@@ -29,7 +33,36 @@ export type {
 
 import type {
   SessionData, SessionHistoryEntry, ExecutionMode, CreateSessionOpts, SessionAction,
+  SavedWorkspace, SavedSessionInfo,
 } from "../types/session";
+
+// ─── Workspace Restore Helpers ───────────────────────────────────────
+
+/** Deep-clone a LayoutNode tree, replacing old session IDs with new ones. */
+function remapLayoutSessionIds(node: LayoutNode, oldToNew: Map<string, string>): LayoutNode | null {
+  if (node.type === "pane") {
+    const newId = oldToNew.get(node.sessionId);
+    if (!newId) return null; // Session wasn't restored — remove this pane
+    return { ...node, id: nextPaneId(), sessionId: newId };
+  }
+  const left = remapLayoutSessionIds(node.children[0], oldToNew);
+  const right = remapLayoutSessionIds(node.children[1], oldToNew);
+  if (!left && !right) return null;
+  if (!left) return right;
+  if (!right) return left;
+  return {
+    ...node,
+    id: nextSplitId(),
+    children: [left, right],
+  };
+}
+
+/** The focused pane ID gets regenerated, so find the first pane in the tree. */
+function remapPaneFocusId(layout: LayoutNode, _oldFocusId: string | null): string | null {
+  // After remapping, IDs are fresh — just pick the first pane
+  if (layout.type === "pane") return layout.id;
+  return remapPaneFocusId(layout.children[0], _oldFocusId);
+}
 
 // ─── State ──────────────────────────────────────────────────────────
 
@@ -476,6 +509,14 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
     case "CLOSE_COMPOSER":
       return state.ui.composerOpen ? { ...state, ui: { ...state.ui, composerOpen: false } } : state;
 
+    // ─── Workspace restore actions ───────────────────────────────────
+    case "RESTORE_LAYOUT":
+      return {
+        ...state,
+        activeSessionId: action.activeSessionId,
+        layout: { root: action.root as LayoutNode | null, focusedPaneId: action.focusedPaneId },
+      };
+
     default:
       return state;
   }
@@ -525,6 +566,7 @@ interface SessionContextValue {
   closeSession: (id: string) => Promise<void>;
   requestCloseSession: (id: string) => void;
   setActive: (id: string | null) => void;
+  saveWorkspace: () => Promise<void>;
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -655,17 +697,102 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         });
 
         // Now load sessions after settings are applied
-        return getSessions();
+        return getSessions().then((arr) => ({ arr, settings: s }));
       })
-      .then((arr) => {
-        arr.forEach((s) => {
-          dispatch({ type: "SESSION_UPDATED", session: s });
-          createTerminal(s.id, s.color);
+      .then(async ({ arr, settings: s }) => {
+        arr.forEach((session) => {
+          dispatch({ type: "SESSION_UPDATED", session });
+          createTerminal(session.id, session.color);
         });
-        // Auto-init layout for the first live session
-        const live = arr.filter((s) => s.phase !== "destroyed");
+
+        const live = arr.filter((session) => session.phase !== "destroyed");
+
+        // If there are live sessions (hot reload / dev), use them as-is
         if (live.length > 0) {
           dispatch({ type: "SET_ACTIVE", id: live[0].id });
+          return;
+        }
+
+        // No live sessions — attempt workspace restore
+        const restorePref = s.restore_sessions || "always";
+        const savedJson = s.saved_workspace;
+        if (restorePref === "never" || !savedJson) return;
+
+        // Guard against React StrictMode double-mount
+        if (workspaceRestoreStarted) return;
+        workspaceRestoreStarted = true;
+
+        let workspace: SavedWorkspace;
+        try {
+          workspace = JSON.parse(savedJson);
+        } catch {
+          return; // Corrupt JSON — skip restore
+        }
+        if (!workspace.sessions?.length) return;
+
+        // Clear the saved workspace immediately to prevent double-restore
+        setSetting("saved_workspace", "").catch(console.error);
+
+        // Re-create each saved session
+        const oldToNew = new Map<string, string>();
+        for (const saved of workspace.sessions) {
+          try {
+            const newSession = await apiCreateSession({
+              sessionId: null,
+              label: saved.label,
+              workingDirectory: saved.working_directory,
+              color: saved.color,
+              workspacePaths: null,
+              aiProvider: saved.ai_provider,
+              realmIds: saved.project_ids.length > 0 ? saved.project_ids : null,
+              autoApprove: false,
+            });
+            await createTerminal(newSession.id, newSession.color);
+
+            // Restore description if present
+            if (saved.description) {
+              updateSessionDescription(newSession.id, saved.description).catch(console.error);
+            }
+
+            // Restore group if present
+            if (saved.group) {
+              updateSessionGroup(newSession.id, saved.group).catch(console.error);
+            }
+
+            // Restore scrollback from the old session's snapshot
+            try {
+              const snapshot = await getSessionSnapshot(saved.id);
+              if (snapshot) {
+                writeScrollback(newSession.id, snapshot);
+              }
+            } catch {
+              console.warn("[SessionContext] Failed to restore scrollback for", saved.label);
+            }
+
+            dispatch({ type: "SESSION_UPDATED", session: newSession });
+            oldToNew.set(saved.id, newSession.id);
+          } catch (err) {
+            console.warn("[SessionContext] Failed to restore session:", saved.label, err);
+          }
+        }
+
+        if (oldToNew.size === 0) return;
+
+        // Rebuild the layout with remapped session IDs
+        if (workspace.layout) {
+          const remappedLayout = remapLayoutSessionIds(workspace.layout as LayoutNode, oldToNew);
+          const remappedFocus = remappedLayout ? remapPaneFocusId(remappedLayout, workspace.focused_pane_id) : null;
+          const remappedActive = workspace.active_session_id ? (oldToNew.get(workspace.active_session_id) ?? null) : null;
+          dispatch({
+            type: "RESTORE_LAYOUT",
+            root: remappedLayout,
+            focusedPaneId: remappedFocus,
+            activeSessionId: remappedActive || oldToNew.values().next().value || null,
+          });
+        } else {
+          // No layout saved — just activate the first restored session
+          const firstNewId = oldToNew.values().next().value;
+          if (firstNewId) dispatch({ type: "SET_ACTIVE", id: firstNewId });
         }
       })
       .catch(console.error);
@@ -780,6 +907,54 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_ACTIVE", id });
   }, []);
 
+  // Keep a ref to the latest state for saveWorkspace (avoids stale closures)
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  const saveWorkspace = useCallback(async () => {
+    const current = stateRef.current;
+    const liveSessions = Object.values(current.sessions).filter((s) => s.phase !== "destroyed");
+    if (liveSessions.length === 0) return;
+
+    try {
+      // 1. Save scrollback snapshots for all live sessions (without closing them)
+      await saveAllSnapshots();
+
+      // 2. Collect session metadata + project IDs
+      const sessionInfos: SavedSessionInfo[] = await Promise.all(
+        liveSessions.map(async (s) => {
+          let projectIds: string[] = [];
+          try {
+            const projects = await getSessionProjects(s.id);
+            projectIds = projects.map((p) => p.id);
+          } catch { /* ignore — projects are optional */ }
+          return {
+            id: s.id,
+            label: s.label,
+            description: s.description,
+            color: s.color,
+            group: s.group,
+            working_directory: s.working_directory,
+            ai_provider: s.ai_provider,
+            project_ids: projectIds,
+          };
+        }),
+      );
+
+      // 3. Serialize workspace state
+      const workspace: SavedWorkspace = {
+        sessions: sessionInfos,
+        layout: current.layout.root,
+        focused_pane_id: current.layout.focusedPaneId,
+        active_session_id: current.activeSessionId,
+      };
+
+      await setSetting("saved_workspace", JSON.stringify(workspace));
+    } catch (err) {
+      console.error("[SessionContext] Failed to save workspace:", err);
+    }
+  }, []);
+
   // Load skip_close_confirm preference on mount
   useEffect(() => {
     getSetting("skip_close_confirm")
@@ -791,8 +966,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       .catch(() => { /* Setting not found — use default (false) */ });
   }, []);
 
+  // Periodic frontend auto-save — captures layout, focused pane, and active session
+  // alongside the session metadata that the Rust auto-save also persists.
+  const saveWorkspaceRef = useRef(saveWorkspace);
+  saveWorkspaceRef.current = saveWorkspace;
+  useEffect(() => {
+    const interval = setInterval(() => {
+      saveWorkspaceRef.current().catch(console.error);
+    }, 10_000); // every 10 seconds
+    return () => clearInterval(interval);
+  }, []);
+
   return (
-    <SessionContext.Provider value={{ state, dispatch, createSession, closeSession, requestCloseSession, setActive }}>
+    <SessionContext.Provider value={{ state, dispatch, createSession, closeSession, requestCloseSession, setActive, saveWorkspace }}>
       {children}
     </SessionContext.Provider>
   );

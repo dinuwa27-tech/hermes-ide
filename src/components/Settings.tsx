@@ -223,6 +223,19 @@ export function Settings({ onClose, initialTab }: SettingsProps) {
                     onContextMenu={textContextMenu}
                   />
                 </div>
+
+                <div className="settings-group">
+                  <label className="settings-label">Restore Sessions on Launch</label>
+                  <select
+                    className="settings-select"
+                    value={settings.restore_sessions || "always"}
+                    onChange={(e) => updateSetting("restore_sessions", e.target.value)}
+                  >
+                    <option value="always">Always</option>
+                    <option value="never">Never</option>
+                  </select>
+                  <span className="settings-hint-inline">Re-open previous sessions and layout when the app restarts</span>
+                </div>
               </div>
             )}
 

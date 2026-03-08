@@ -1234,6 +1234,21 @@ impl Database {
         Ok(entries)
     }
 
+    /// Get realm IDs attached to a given session.
+    pub fn get_sessions_for_realm_by_session(&self, session_id: &str) -> Result<Vec<String>, String> {
+        let mut stmt = self.conn.prepare(
+            "SELECT realm_id FROM session_realms WHERE session_id = ?1"
+        ).map_err(|e| e.to_string())?;
+
+        let rows = stmt.query_map(params![session_id], |row| {
+            row.get(0)
+        }).map_err(|e| e.to_string())?;
+
+        let mut entries = Vec::new();
+        for row in rows { entries.push(row.map_err(|e| e.to_string())?); }
+        Ok(entries)
+    }
+
     pub fn get_sessions_for_realm(&self, realm_id: &str) -> Result<Vec<String>, String> {
         let mut stmt = self.conn.prepare(
             "SELECT session_id FROM session_realms WHERE realm_id = ?1"
