@@ -133,3 +133,8 @@
 .split-pane-drop-file.split-pane-drop-visible {
   border-style: dashed;
 }
+/* Image drop on AI session — solid border to distinguish from file drop */
+.split-pane-drop-image.split-pane-drop-visible {
+  border-style: solid;
+  border-width: 2px;
+}

@@ -1166,6 +1166,23 @@ export function terminalGetSelection(sessionId: string): string {
   return pool.get(sessionId)?.terminal.getSelection() ?? "";
 }
 
+/** Write arbitrary text into the terminal as if pasted (e.g. a file path from a drop event).
+ *  Writes directly to the PTY, bypassing the clipboard entirely. */
+export function writeTextToTerminal(sessionId: string, text: string): void {
+  const entry = pool.get(sessionId);
+  if (!entry || !entry.attached || !entry.opened || !text) return;
+
+  dismissSuggestions(sessionId);
+  clearGhostText(sessionId);
+
+  writeToSession(sessionId, utf8ToBase64(text)).catch((err) => {
+    console.warn(`[TerminalPool] writeTextToTerminal failed for ${sessionId}:`, err);
+  });
+
+  entry.inputBuffer += text;
+  focusTerminal(sessionId);
+}
+
 /** Insert file paths into the terminal as typed text (e.g. from OS file drop).
  *  Paths with spaces are quoted. Multiple paths are space-separated. */
 export function insertFilePaths(sessionId: string, paths: string[]): void {

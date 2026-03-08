@@ -4,7 +4,8 @@ import { useSession } from "../state/SessionContext";
 import { ScopeBar } from "./ScopeBar";
 import { ProviderActionsBar } from "./ProviderActionsBar";
 import { TerminalPane } from "./TerminalPane";
-import { focusTerminal, terminalHasSelection, terminalGetSelection, insertFilePaths } from "../terminal/TerminalPool";
+import { focusTerminal, terminalHasSelection, terminalGetSelection, insertFilePaths, writeTextToTerminal } from "../terminal/TerminalPool";
+import { copyImageToClipboard } from "../api/clipboard";
 import { SplitDirection, collectPanes } from "../state/layoutTypes";
 import { useContextMenu, buildTerminalMenuItems, buildPaneHeaderMenuItems } from "../hooks/useContextMenu";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -59,6 +60,20 @@ function computeDropZone(clientX: number, clientY: number, rect: DOMRect): DropZ
   return "center";
 }
 
+// ── Image file detection ─────────────────────────────────────────────
+const IMAGE_EXTENSIONS = new Set([
+  ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tiff", ".tif", ".ico",
+]);
+
+function isImagePath(path: string): boolean {
+  const ext = path.toLowerCase().match(/\.[^.]+$/)?.[0] || "";
+  return IMAGE_EXTENSIONS.has(ext);
+}
+
+function hasImageFiles(paths: string[]): boolean {
+  return paths.some(isImagePath);
+}
+
 export function SplitPane({ paneId, sessionId }: SplitPaneProps) {
   const { state, dispatch } = useSession();
   const session = state.sessions[sessionId];
@@ -66,9 +81,12 @@ export function SplitPane({ paneId, sessionId }: SplitPaneProps) {
   const paneRef = useRef<HTMLDivElement>(null);
   const [dropZone, setDropZone] = useState<DropZone>(null);
   const [fileDragOver, setFileDragOver] = useState(false);
+  const [imageDragOver, setImageDragOver] = useState(false);
   // Keep refs for values used inside the Tauri handler to avoid re-registering
   const layoutRef = useRef(state.layout.root);
   layoutRef.current = state.layout.root;
+  const sessionsRef = useRef(state.sessions);
+  sessionsRef.current = state.sessions;
 
   useEffect(() => {
     if (isFocused) focusTerminal(sessionId);
@@ -81,6 +99,7 @@ export function SplitPane({ paneId, sessionId }: SplitPaneProps) {
     let unlisten: (() => void) | null = null;
     let cancelled = false;
     let isFileDrag = false;
+    let isImageDrag = false;
     // Capture the dragged session ID on enter — by the time "drop" fires,
     // SessionList's dragend cleanup may have already cleared the global.
     let capturedSessionId: string | null = null;
@@ -91,8 +110,10 @@ export function SplitPane({ paneId, sessionId }: SplitPaneProps) {
 
       if (type === "leave") {
         isFileDrag = false;
+        isImageDrag = false;
         capturedSessionId = null;
         setFileDragOver(false);
+        setImageDragOver(false);
         setDropZone(null);
         return;
       }
@@ -100,6 +121,10 @@ export function SplitPane({ paneId, sessionId }: SplitPaneProps) {
       if (type === "enter") {
         isFileDrag = event.payload.paths.length > 0;
         capturedSessionId = _draggedSessionId;
+        // Check if drag contains image files AND session is AI-powered
+        const sess = sessionsRef.current[sessionId];
+        const isAi = !!(sess?.detected_agent || sess?.ai_provider);
+        isImageDrag = isFileDrag && isAi && hasImageFiles(event.payload.paths);
       }
 
       const rect = paneRef.current?.getBoundingClientRect();
@@ -112,21 +137,49 @@ export function SplitPane({ paneId, sessionId }: SplitPaneProps) {
 
       if (type === "enter" || type === "over") {
         if (isFileDrag) {
-          setFileDragOver(isOver);
+          setFileDragOver(isOver && !isImageDrag);
+          setImageDragOver(isOver && isImageDrag);
           setDropZone(null);
         } else if (capturedSessionId) {
           setFileDragOver(false);
+          setImageDragOver(false);
           setDropZone(isOver ? computeDropZone(x, y, rect) : null);
         }
       } else if (type === "drop") {
         setFileDragOver(false);
+        setImageDragOver(false);
         setDropZone(null);
 
-        if (!isOver) { isFileDrag = false; capturedSessionId = null; return; }
+        if (!isOver) { isFileDrag = false; isImageDrag = false; capturedSessionId = null; return; }
 
         if (isFileDrag && event.payload.paths.length > 0) {
-          // ── File drop → insert path(s) into terminal ──
-          insertFilePaths(sessionId, event.payload.paths);
+          if (isImageDrag) {
+            // ── Image drop on AI session → copy to clipboard + write path ──
+            // 1. Copy image data to system clipboard (AI tools detect it for vision)
+            // 2. Write the file path directly to the PTY (no clipboard read needed)
+            const imagePaths = event.payload.paths.filter(isImagePath);
+            const nonImagePaths = event.payload.paths.filter((p) => !isImagePath(p));
+
+            if (imagePaths.length > 0) {
+              const firstImage = imagePaths[0];
+              // Copy image to clipboard in background (for AI vision detection)
+              copyImageToClipboard(firstImage).catch((err) => {
+                console.warn("[SplitPane] Failed to copy image to clipboard:", err);
+              });
+              // Write path directly to terminal — bypasses WebView paste confirmation
+              const quoted = firstImage.includes(" ") ? `"${firstImage}"` : firstImage;
+              writeTextToTerminal(sessionId, quoted + " ");
+            }
+
+            // Insert remaining image paths (if multiple images) and all non-image paths
+            const remainingPaths = [...imagePaths.slice(1), ...nonImagePaths];
+            if (remainingPaths.length > 0) {
+              insertFilePaths(sessionId, remainingPaths);
+            }
+          } else {
+            // ── File drop → insert path(s) into terminal ──
+            insertFilePaths(sessionId, event.payload.paths);
+          }
         } else if (capturedSessionId && capturedSessionId !== sessionId) {
           // ── Session drop → split/replace pane ──
           const droppedSessionId = capturedSessionId;
@@ -160,6 +213,7 @@ export function SplitPane({ paneId, sessionId }: SplitPaneProps) {
         }
 
         isFileDrag = false;
+        isImageDrag = false;
         capturedSessionId = null;
       }
     }).then((fn) => {
@@ -229,7 +283,7 @@ export function SplitPane({ paneId, sessionId }: SplitPaneProps) {
   return (
     <div
       ref={paneRef}
-      className={`split-pane ${isFocused ? "split-pane-focused" : ""} ${dropZone || fileDragOver ? "split-pane-dragging" : ""}`}
+      className={`split-pane ${isFocused ? "split-pane-focused" : ""} ${dropZone || fileDragOver || imageDragOver ? "split-pane-dragging" : ""}`}
       style={session.color ? { borderLeftColor: session.color, borderLeftWidth: 3, borderLeftStyle: "solid" } : undefined}
       onMouseDown={handleMouseDown}
     >
@@ -268,10 +322,10 @@ export function SplitPane({ paneId, sessionId }: SplitPaneProps) {
       <div className="split-pane-drag-capture" />
 
       {/* Active drop zone highlight */}
-      <div className={`split-pane-drop-overlay ${fileDragOver ? "split-pane-drop-center split-pane-drop-visible split-pane-drop-file" : dropZone ? `split-pane-drop-${dropZone} split-pane-drop-visible` : ""}`}>
-        {(dropZone || fileDragOver) && (
+      <div className={`split-pane-drop-overlay ${imageDragOver ? "split-pane-drop-center split-pane-drop-visible split-pane-drop-image" : fileDragOver ? "split-pane-drop-center split-pane-drop-visible split-pane-drop-file" : dropZone ? `split-pane-drop-${dropZone} split-pane-drop-visible` : ""}`}>
+        {(dropZone || fileDragOver || imageDragOver) && (
           <div className="split-pane-drop-label">
-            {fileDragOver ? "Drop to insert path" : dropZone === "center" ? "Replace" : `Split ${dropZone}`}
+            {imageDragOver ? "Drop to paste image" : fileDragOver ? "Drop to insert path" : dropZone === "center" ? "Replace" : `Split ${dropZone}`}
           </div>
         )}
       </div>

@@ -1,3 +1,4 @@
+mod clipboard;
 mod db;
 mod git;
 mod menu;
@@ -140,6 +141,12 @@ fn save_workspace_state(app: &tauri::AppHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     env_logger::init();
+
+    // Create a Tokio runtime context for plugins that spawn async tasks during
+    // initialization (tauri-plugin-aptabase calls tokio::task::spawn in its init
+    // callback, before Tauri's own runtime is active).
+    let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+    let _guard = rt.enter();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -333,6 +340,8 @@ pub fn run() {
             // Menu
             menu::show_context_menu,
             menu::update_menu_state,
+            // Clipboard
+            clipboard::copy_image_to_clipboard,
         ])
         .build(tauri::generate_context!())
         .expect("error while building HERMES-IDE")
