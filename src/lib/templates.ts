@@ -1485,4 +1485,32 @@ export const BUILT_IN_TEMPLATES: PromptTemplate[] = [
       style: "Use clear section headings for each phase. Keep each phase focused — finish one before moving to the next. Prefer concrete examples over abstract descriptions. Show code as diffs when modifying existing files.",
     },
   },
+  {
+    id: "product-seo-audit",
+    name: "SEO Audit & Optimization",
+    description: "Audit a site or page for SEO issues and generate optimized metadata, structured data, and content recommendations.",
+    category: "product",
+    recommendedRoles: ["product-manager", "fullstack-eng"],
+    recommendedStyles: [{ id: "actionable", level: 4 }, { id: "detailed", level: 3 }, { id: "visual", level: 2 }],
+    builtIn: true,
+    fields: {
+      task: "Perform a comprehensive SEO audit and generate optimized metadata for the target page or site.",
+      constraints: "Cover each area systematically:\n\n1. **Meta Tags** — Review and optimize title (50-60 chars), meta description (150-160 chars), and canonical URL. Ensure each page has unique, keyword-rich metadata.\n2. **Open Graph & Twitter Cards** — Generate og:title, og:description, og:image (1200×630), og:type, twitter:card, twitter:title, twitter:description, twitter:image. Verify image dimensions and alt text.\n3. **Structured Data (JSON-LD)** — Add or improve schema.org markup (WebSite, SoftwareApplication, Article, BreadcrumbList, FAQ, Organization, etc.) appropriate for the page type. Validate against Google Rich Results requirements.\n4. **Sitemap & Robots** — Verify sitemap.xml includes all public routes with correct changefreq/priority. Check robots.txt allows crawling of important paths and blocks irrelevant ones.\n5. **Headings & Content Structure** — Ensure a single H1 per page, logical heading hierarchy (H1→H2→H3), and keyword presence in headings.\n6. **Performance Signals** — Check for Core Web Vitals concerns: image optimization (WebP/AVIF, srcset, lazy loading), render-blocking resources, font loading strategy.\n7. **Accessibility & Crawlability** — Verify alt text on images, semantic HTML, internal linking, and clean URL structure.\n8. **Keyword Strategy** — Suggest primary and secondary keywords based on page intent. Recommend keyword placement in title, headings, first paragraph, and URL slug.",
+      style: "Present findings as a prioritized checklist: critical issues first, then improvements, then nice-to-haves. For each item show the current state, the issue, and the recommended fix with ready-to-use code or markup.",
+    },
+  },
+  {
+    id: "product-landing-page-seo",
+    name: "Landing Page SEO Copy",
+    description: "Write SEO-optimized copy for a landing page including headlines, descriptions, and CTAs targeting specific keywords.",
+    category: "product",
+    recommendedRoles: ["product-manager"],
+    recommendedStyles: [{ id: "actionable", level: 4 }, { id: "balanced", level: 3 }],
+    builtIn: true,
+    fields: {
+      task: "Write SEO-optimized copy for a landing page, targeting the specified keywords and audience.",
+      constraints: "Deliver all of the following:\n\n1. **Page Title Tag** — Under 60 characters, primary keyword near the front, compelling and click-worthy.\n2. **Meta Description** — 150-160 characters, includes primary keyword, has a clear call to action.\n3. **H1 Headline** — One per page, includes primary keyword naturally, speaks to the user's intent.\n4. **Supporting Headlines (H2s)** — 3-5 section headings that cover secondary keywords and map to user questions.\n5. **Hero Copy** — 2-3 sentences below the H1 that communicate the core value proposition and include the primary keyword.\n6. **Section Copy** — Short paragraphs (2-4 sentences each) for each H2 section, weaving in secondary keywords naturally.\n7. **CTA Copy** — Primary and secondary call-to-action button text and surrounding microcopy.\n8. **Alt Text** — Suggested alt text for key images (hero, feature screenshots, etc.).\n\nAll copy must read naturally — no keyword stuffing. Prioritize clarity and conversion over keyword density.",
+      style: "Present as a page outline with all copy ready to paste. Mark primary and secondary keywords inline. Include a brief SEO rationale for key decisions.",
+    },
+  },
 ];
