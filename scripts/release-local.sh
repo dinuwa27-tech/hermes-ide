@@ -31,6 +31,7 @@ step()  { echo -e "\n${GREEN}━━━ $* ━━━${NC}\n"; }
 BUILD_MACOS=false
 BUILD_LINUX=false
 SKIP_NOTARIZE=false
+SKIP_MANIFESTS=false
 MANIFESTS_ONLY=false
 
 for arg in "$@"; do
@@ -39,6 +40,7 @@ for arg in "$@"; do
     --linux)          BUILD_LINUX=true ;;
     --all)            BUILD_MACOS=true; BUILD_LINUX=true ;;
     --skip-notarize)  SKIP_NOTARIZE=true ;;
+    --skip-manifests) SKIP_MANIFESTS=true ;;
     --manifests)      MANIFESTS_ONLY=true ;;
     --help|-h)
       sed -n '2,/^# ─/{ /^# ─/d; s/^# //; s/^#//; p }' "$0"
@@ -182,12 +184,15 @@ build_linux_target() {
 
   step "Building Linux — $rust_target (Docker $docker_platform)"
 
-  # Build the Docker image if not already built
-  if ! docker image inspect "$DOCKER_IMAGE" >/dev/null 2>&1; then
-    info "Building Docker image ($DOCKER_IMAGE)..."
+  # Use per-platform image name to avoid arch mismatch
+  local image_tag="${DOCKER_IMAGE}-${platform_key}"
+
+  # Build the Docker image if not already built for this platform
+  if ! docker image inspect "$image_tag" >/dev/null 2>&1; then
+    info "Building Docker image ($image_tag)..."
     docker build \
       --platform "$docker_platform" \
-      -t "$DOCKER_IMAGE" \
+      -t "$image_tag" \
       -f "$SCRIPT_DIR/docker/Dockerfile.linux" \
       "$SCRIPT_DIR/docker"
   fi
@@ -204,7 +209,7 @@ build_linux_target() {
     -v "$out_dir":/out \
     -e TAURI_SIGNING_PRIVATE_KEY \
     -e TAURI_SIGNING_PRIVATE_KEY_PASSWORD \
-    "$DOCKER_IMAGE" \
+    "$image_tag" \
     "$rust_target"
 
   # Move artifacts from sub-dir to main artifacts dir with proper naming
@@ -334,6 +339,7 @@ regenerate_manifests() {
   # ── downloads.json (website download links) ─────────────────────────────
   info "Building downloads.json..."
   local dl_json='{}'
+  local versions_json='{}'
 
   add_download() {
     local platform="$1" arch="$2" format="$3" pattern="$4"
@@ -343,6 +349,13 @@ regenerate_manifests() {
     dl_json=$(echo "$dl_json" | jq \
       --arg p "$platform" --arg a "$arch" --arg f "$format" --arg n "$filename" \
       '.[$p][$a][$f] = $n')
+
+    # Extract version from filename (e.g. hermes-ide-0.3.35_aarch64.dmg → 0.3.35)
+    local file_version
+    file_version=$(echo "$filename" | sed -E 's/^hermes-ide-([0-9]+\.[0-9]+\.[0-9]+)_.*/\1/')
+    if [[ -n "$file_version" ]]; then
+      versions_json=$(echo "$versions_json" | jq --arg p "$platform" --arg v "$file_version" '.[$p] = $v')
+    fi
   }
 
   add_download "macos"   "aarch64" "dmg"      "_aarch64\.dmg$"
@@ -355,8 +368,9 @@ regenerate_manifests() {
 
   jq -n \
     --arg version "$VERSION" \
+    --argjson versions "$versions_json" \
     --argjson platforms "$dl_json" \
-    '{version: $version, platforms: $platforms}' \
+    '{version: $version, versions: $versions, platforms: $platforms}' \
     > "$ARTIFACTS_DIR/downloads.json"
 
   # Upload manifests
@@ -408,9 +422,11 @@ if ! $MANIFESTS_ONLY; then
   upload_artifacts
 fi
 
-# ── Always regenerate manifests ─────────────────────────────────────────
-ensure_release_exists
-regenerate_manifests
+# ── Regenerate manifests (unless --skip-manifests) ────────────────────
+if ! $SKIP_MANIFESTS; then
+  ensure_release_exists
+  regenerate_manifests
+fi
 
 step "Done"
 echo "  Release: https://github.com/$RELEASES_REPO/releases/tag/$TAG"
