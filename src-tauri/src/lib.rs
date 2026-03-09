@@ -274,6 +274,10 @@ pub fn run() {
             // Settings Export / Import
             db::export_settings,
             db::import_settings,
+            // Plugin storage
+            db::get_plugin_setting,
+            db::set_plugin_setting,
+            db::delete_plugin_setting,
             // Workspace
             workspace::scan_directory,
             workspace::detect_project,

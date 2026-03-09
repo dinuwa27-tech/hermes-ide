@@ -21,6 +21,8 @@ interface CommandPaletteProps {
   onOpenShortcuts?: () => void;
   onToggleGit?: () => void;
   onToggleSearch?: () => void;
+  pluginCommands?: { command: string; title: string; category?: string; pluginId: string }[];
+  onPluginCommand?: (commandId: string) => void;
 }
 
 interface Command {
@@ -33,7 +35,7 @@ interface Command {
 }
 
 export function CommandPalette({
-  onClose, sessions, onSelectSession, onNewSession, onToggleContext, onToggleSessions, onOpenSettings, onOpenWorkspace, onOpenCostDashboard, onToggleFlowMode, onAttachProject, onScanCwd, onOpenComposer, onOpenShortcuts, onToggleGit, onToggleSearch,
+  onClose, sessions, onSelectSession, onNewSession, onToggleContext, onToggleSessions, onOpenSettings, onOpenWorkspace, onOpenCostDashboard, onToggleFlowMode, onAttachProject, onScanCwd, onOpenComposer, onOpenShortcuts, onToggleGit, onToggleSearch, pluginCommands, onPluginCommand,
 }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -68,7 +70,13 @@ export function CommandPalette({
       shortcut: i < 9 ? fmt(`{mod}${i + 1}`) : undefined,
       action: () => { onSelectSession(s.id); onClose(); },
     })),
-  ], [sessions, onNewSession, onClose, onToggleContext, onToggleSessions, onSelectSession, onOpenSettings, onOpenWorkspace, onOpenCostDashboard, onToggleFlowMode, onAttachProject, onScanCwd, onOpenComposer, onOpenShortcuts, onToggleGit, onToggleSearch]);
+    ...(pluginCommands ?? []).map(pc => ({
+      id: `plugin-${pc.command}`,
+      label: pc.title,
+      category: pc.category || "Plugin",
+      action: () => { onPluginCommand?.(pc.command); onClose(); },
+    })),
+  ], [sessions, onNewSession, onClose, onToggleContext, onToggleSessions, onSelectSession, onOpenSettings, onOpenWorkspace, onOpenCostDashboard, onToggleFlowMode, onAttachProject, onScanCwd, onOpenComposer, onOpenShortcuts, onToggleGit, onToggleSearch, pluginCommands, onPluginCommand]);
 
   const filtered = useMemo(() => {
     if (!query) return commands.filter((c) => !c.hidden);

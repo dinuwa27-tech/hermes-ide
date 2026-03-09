@@ -1,4 +1,8 @@
 import { useState, useEffect, useCallback, useRef, Component, type ReactNode, type ErrorInfo } from "react";
+import { PluginRuntime } from "./plugins/PluginRuntime";
+import { builtinPlugins } from "./plugins/builtin";
+import { usePluginRuntime } from "./plugins/usePluginRuntime";
+import { PluginPanelHost } from "./plugins/PluginPanelHost";
 import "./styles/layout.css";
 import "./styles/themes.css";
 import "./styles/topbar.css";
@@ -61,6 +65,48 @@ function AppContent() {
   const pendingSplit = useRef<{ paneId: string; direction: SplitDirection } | null>(null);
   const updater = useAutoUpdater();
   const activeGitSummary = useSessionGitSummary(state.activeSessionId, !!activeSession);
+
+  // ── Plugin System ──
+  const [activePluginPanel, setActivePluginPanel] = useState<string | null>(null);
+  const [pluginToast, setPluginToast] = useState<{ message: string; type: string } | null>(null);
+
+  const pluginRuntimeRef = useRef<PluginRuntime | null>(null);
+
+  const [pluginRuntime] = useState<PluginRuntime>(() => {
+    const runtime = new PluginRuntime({
+      onPanelToggle: (panelId) => setActivePluginPanel(prev => prev === panelId ? null : panelId),
+      onPanelShow: (panelId) => {
+        setActivePluginPanel(panelId);
+        dispatch({ type: "SET_LEFT_TAB", tab: "terminal" });
+      },
+      onPanelHide: () => setActivePluginPanel(null),
+      onToast: (message, type) => {
+        setPluginToast({ message, type });
+        setTimeout(() => setPluginToast(null), 3000);
+      },
+      onStatusBarUpdate: (itemId, update) => {
+        pluginRuntimeRef.current?.updateStatusBarItem(itemId, update);
+      },
+    });
+    pluginRuntimeRef.current = runtime;
+    for (const plugin of builtinPlugins) {
+      runtime.register(plugin);
+    }
+    return runtime;
+  });
+
+  const { commands: pluginCommands, panels: pluginPanels, statusBarItems: pluginStatusBarItems } = usePluginRuntime(pluginRuntime);
+
+  useEffect(() => {
+    pluginRuntime.activateStartupPlugins().catch(console.error);
+  }, [pluginRuntime]);
+
+  // When a built-in panel opens, close plugin panels
+  useEffect(() => {
+    if (ui.gitPanelOpen || ui.processPanelOpen || ui.fileExplorerOpen || ui.searchPanelOpen) {
+      setActivePluginPanel(null);
+    }
+  }, [ui.gitPanelOpen, ui.processPanelOpen, ui.fileExplorerOpen, ui.searchPanelOpen]);
 
   // Keyboard shortcuts — only those NOT handled by native menu bar
   // (Cmd+Alt+Arrow for pane nav, Cmd+1-9 for session switch, F1/F3 for overlays)
@@ -320,9 +366,29 @@ function AppContent() {
             side="left"
             tabs={[
               { id: "sessions", label: `Sessions (${fmt("{mod}B")})`, icon: SessionsIcon, badge: sessions.length || undefined },
+              ...pluginPanels
+                .filter(p => p.side === "left")
+                .map(p => ({
+                  id: p.id,
+                  label: p.name,
+                  icon: <span dangerouslySetInnerHTML={{ __html: p.icon }} />,
+                })),
             ]}
-            activeTabId={!ui.sessionListCollapsed ? "sessions" : null}
-            onTabClick={() => dispatch({ type: "TOGGLE_SIDEBAR" })}
+            activeTabId={activePluginPanel ?? (!ui.sessionListCollapsed ? "sessions" : null)}
+            onTabClick={(tabId) => {
+              if (tabId === "sessions") {
+                setActivePluginPanel(null);
+                dispatch({ type: "TOGGLE_SIDEBAR" });
+              } else {
+                // Plugin panel tab clicked
+                if (activePluginPanel === tabId) {
+                  setActivePluginPanel(null);
+                } else {
+                  setActivePluginPanel(tabId);
+                  dispatch({ type: "SET_LEFT_TAB", tab: "terminal" });
+                }
+              }
+            }}
             topAction={{ icon: PlusIcon, label: `New Session (${fmt("{mod}N")})`, onClick: () => setSessionCreatorOpen({}) }}
             bottomAction={{ icon: SettingsIcon, label: "Settings", onClick: () => setSettingsOpen("general") }}
           />
@@ -365,6 +431,17 @@ function AppContent() {
         {ui.searchPanelOpen && !ui.flowMode && (
           <SearchPanel visible={ui.searchPanelOpen} />
         )}
+        {activePluginPanel && !ui.flowMode && (() => {
+          const panelMeta = pluginPanels.find(p => p.id === activePluginPanel && p.side === "left");
+          if (!panelMeta) return null;
+          const PanelComponent = pluginRuntime.getPanelComponent(activePluginPanel);
+          if (!PanelComponent) return null;
+          return (
+            <PluginPanelHost pluginId={panelMeta.pluginId} panelId={activePluginPanel} panelName={panelMeta.name}>
+              <PanelComponent pluginId={panelMeta.pluginId} panelId={activePluginPanel} />
+            </PluginPanelHost>
+          );
+        })()}
         <div className="main-area">
           <div className="terminal-and-timeline">
             <div className="terminal-container">
@@ -406,6 +483,8 @@ function AppContent() {
 
       <StatusBar
         onOpenShortcuts={() => setShortcutsOpen(true)}
+        pluginStatusBarItems={pluginStatusBarItems}
+        onPluginStatusBarClick={(command) => pluginRuntime.executeCommand(command)}
         updateAvailable={updater.state.available}
         updateVersion={updater.state.version}
         updateDownloading={updater.state.downloading}
@@ -436,6 +515,8 @@ function AppContent() {
               createProject(activeSession.working_directory, null).catch(console.error);
             }
           }}
+          pluginCommands={pluginCommands}
+          onPluginCommand={(commandId) => pluginRuntime.executeCommand(commandId)}
         />
       )}
 
@@ -536,6 +617,12 @@ function AppContent() {
             setSetting("skip_close_confirm", "true").catch(console.warn);
           }}
         />
+      )}
+
+      {pluginToast && (
+        <div className={`plugin-toast plugin-toast-${pluginToast.type}`}>
+          {pluginToast.message}
+        </div>
       )}
 
     </div>

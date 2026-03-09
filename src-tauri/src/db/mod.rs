@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -377,6 +377,27 @@ impl Database {
             );
             CREATE INDEX IF NOT EXISTS idx_sw_session ON session_worktrees(session_id);
             CREATE INDEX IF NOT EXISTS idx_sw_realm ON session_worktrees(realm_id);
+
+            CREATE TABLE IF NOT EXISTS plugins (
+                id TEXT PRIMARY KEY,
+                version TEXT NOT NULL,
+                name TEXT NOT NULL,
+                description TEXT,
+                author TEXT,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                permissions_granted TEXT NOT NULL DEFAULT '[]',
+                installed_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS plugin_storage (
+                plugin_id TEXT NOT NULL,
+                key TEXT NOT NULL,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (plugin_id, key)
+            );
+            CREATE INDEX IF NOT EXISTS idx_plugin_storage_plugin ON plugin_storage(plugin_id);
         ").map_err(|e| format!("Migration failed: {}", e))?;
 
         // Migrate existing projects → realms (one-time, idempotent)
@@ -2509,4 +2530,55 @@ pub fn import_settings(
         db.set_setting(key, value)?;
     }
     db.get_all_settings()
+}
+
+#[tauri::command]
+pub fn get_plugin_setting(
+    key: String,
+    plugin_id: String,
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.conn
+        .query_row(
+            "SELECT value FROM plugin_storage WHERE plugin_id = ?1 AND key = ?2",
+            params![plugin_id, key],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_plugin_setting(
+    key: String,
+    value: String,
+    plugin_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.conn
+        .execute(
+            "INSERT INTO plugin_storage (plugin_id, key, value, updated_at) VALUES (?1, ?2, ?3, datetime('now'))
+             ON CONFLICT(plugin_id, key) DO UPDATE SET value = ?3, updated_at = datetime('now')",
+            params![plugin_id, key, value],
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn delete_plugin_setting(
+    key: String,
+    plugin_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.conn
+        .execute(
+            "DELETE FROM plugin_storage WHERE plugin_id = ?1 AND key = ?2",
+            params![plugin_id, key],
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
