@@ -1,5 +1,7 @@
 # HERMES IDE
 
+[![CI](https://github.com/hermes-hq/hermes-ide/actions/workflows/ci.yml/badge.svg)](https://github.com/hermes-hq/hermes-ide/actions/workflows/ci.yml) [![Release](https://github.com/hermes-hq/hermes-ide/actions/workflows/release.yml/badge.svg)](https://github.com/hermes-hq/hermes-ide/actions/workflows/release.yml) [![Latest Release](https://img.shields.io/github/v/release/hermes-hq/releases?label=latest)](https://github.com/hermes-hq/releases/releases/latest)
+
 [![Tauri](https://img.shields.io/badge/Tauri-2.x-FFC131?logo=tauri&logoColor=white)](https://tauri.app)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)](https://react.dev)
 [![Rust](https://img.shields.io/badge/Rust-2021-DEA584?logo=rust&logoColor=white)](https://www.rust-lang.org)
