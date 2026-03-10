@@ -6,6 +6,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![License](https://img.shields.io/badge/license-BSL%201.1-blue)](LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-Join_Server-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/vMQXSTY6BM)
+[![Sponsor](https://img.shields.io/badge/Sponsor-EA4AAA?style=flat-square&logo=github-sponsors&logoColor=white)](https://github.com/sponsors/hermes-hq)
 
 > An AI-native terminal that understands your projects, predicts your commands, and executes autonomously.
 
@@ -187,6 +188,27 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for a detailed technical overview.
 ## Security
 
 Found a vulnerability? Please report it responsibly via [ga.contact.me@gmail.com](mailto:ga.contact.me@gmail.com). See our [Security Policy](https://github.com/hermes-hq/.github/blob/main/SECURITY.md) for details.
+
+---
+
+## 💛 Sponsors
+
+Hermes IDE is built and maintained by a small team. If you find it useful, please consider sponsoring to help keep the project alive and accelerate development.
+
+[![Sponsor Hermes IDE](https://img.shields.io/badge/Sponsor-Hermes_IDE-EA4AAA?style=for-the-badge&logo=github-sponsors&logoColor=white)](https://github.com/sponsors/hermes-hq)
+[![GitHub Sponsors](https://img.shields.io/github/sponsors/hermes-hq?style=flat-square&logo=github-sponsors&label=Sponsors&color=EA4AAA)](https://github.com/sponsors/hermes-hq)
+
+| Tier | Monthly | Perks |
+|------|---------|-------|
+| ☕ Supporter | $5 | Sponsor badge |
+| 🚀 Backer | $20 | Badge + release notes mention |
+| 💎 Contributor | $50 | Badge + README credit + early access |
+| 🤝 Partner | $100 | Logo in README + priority bug reports |
+| 🏢 Company | $500 | Logo on website + direct support channel |
+
+**[→ View all sponsorship tiers and become a sponsor](https://github.com/sponsors/hermes-hq)**
+
+See [SPONSORS.md](./SPONSORS.md) for the full list of sponsors and details.
 
 ---
 
