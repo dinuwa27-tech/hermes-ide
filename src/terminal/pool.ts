@@ -547,11 +547,13 @@ export function getCursorPosition(sessionId: string): { x: number; y: number } |
 /**
  * Clean a terminal selection string using the buffer's line metadata.
  *
- * xterm's getSelection() inserts \n at every visual row boundary, even for
- * soft-wrapped lines that are logically one line. This function walks the
- * buffer rows covered by the selection and joins soft-wrapped rows (where
- * buffer.getLine(row).isWrapped === true) while keeping real newlines.
- * Each resulting logical line is also trimmed of trailing whitespace.
+ * Two passes:
+ * 1. Join xterm soft-wrapped rows (isWrapped === true) — these are visual
+ *    wraps inserted by the terminal when a line exceeds the column width.
+ * 2. Join program-wrapped continuation lines — many CLI tools (AI agents,
+ *    man pages, etc.) emit their own word-wrapping with leading spaces on
+ *    continuation lines. We detect these by checking if the previous line
+ *    was nearly full-width and the current line starts with small indent.
  */
 export function cleanSelection(terminal: Terminal, raw: string): string {
   const sel = terminal.getSelectionPosition?.();
@@ -561,10 +563,12 @@ export function cleanSelection(terminal: Terminal, raw: string): string {
   }
 
   const buf = terminal.buffer.active;
+  const cols = terminal.cols;
   const startRow = sel.start.y;
 
+  // ── Pass 1: join xterm soft-wrapped rows ──────────────
   const rawLines = raw.split("\n");
-  const result: string[] = [];
+  const pass1: string[] = [];
   let current = "";
 
   for (let i = 0; i < rawLines.length; i++) {
@@ -573,17 +577,43 @@ export function cleanSelection(terminal: Terminal, raw: string): string {
     const isWrapped = line?.isWrapped ?? false;
 
     if (isWrapped) {
-      // This row is a continuation of the previous — join without newline.
-      // Trim trailing spaces from the join point to avoid padding.
       current = current.trimEnd() + rawLines[i];
     } else {
       if (i > 0) {
-        result.push(current.trimEnd());
+        pass1.push(current.trimEnd());
       }
       current = rawLines[i];
     }
   }
-  result.push(current.trimEnd());
+  pass1.push(current.trimEnd());
+
+  // ── Pass 2: join program-wrapped continuation lines ───
+  // Heuristic: if a line is nearly full terminal width and the next line
+  // starts with 1-6 spaces followed by a word character (not a list marker
+  // or special char), treat it as a paragraph continuation.
+  const fullLineThreshold = cols * 0.65;
+  const result: string[] = [];
+
+  for (let i = 0; i < pass1.length; i++) {
+    const line = pass1[i];
+    const indent = line.match(/^( {1,6})\S/);
+
+    if (indent && result.length > 0) {
+      const prev = result[result.length - 1];
+      const prevTrimmedLen = prev.trimEnd().length;
+      const content = line.trimStart();
+      // Only join if:
+      // - Previous line was nearly full width (it was wrapped)
+      // - Content doesn't start with a list/special marker
+      // - Previous line is non-empty
+      const isListOrSpecial = /^[-*>+#●•▸▹\d]/.test(content);
+      if (prevTrimmedLen >= fullLineThreshold && !isListOrSpecial && prev.length > 0) {
+        result[result.length - 1] = prev + " " + content;
+        continue;
+      }
+    }
+    result.push(line);
+  }
 
   // Preserve trailing newline if the original selection had one
   const suffix = raw.endsWith("\n") ? "\n" : "";
