@@ -217,13 +217,14 @@ export async function createTerminal(
     handleTerminalInput(sessionId, data);
   });
 
-  // Strip trailing whitespace from copied text (Cmd+C / Ctrl+C).
-  // xterm pads soft-wrapped lines to the full terminal width, which
-  // causes extra spaces when pasting into other applications.
+  // Clean up copied text (Cmd+C / Ctrl+C):
+  // 1. Join soft-wrapped lines — xterm inserts \n at visual line boundaries
+  //    even when the underlying text is one continuous line.
+  // 2. Trim trailing whitespace from each real line.
   container.addEventListener("copy", (e: ClipboardEvent) => {
     const sel = terminal.getSelection();
     if (!sel || !e.clipboardData) return;
-    const cleaned = sel.split("\n").map(l => l.trimEnd()).join("\n");
+    const cleaned = cleanSelection(terminal, sel);
     e.clipboardData.setData("text/plain", cleaned);
     e.preventDefault();
   });
@@ -541,4 +542,50 @@ export function getCursorPosition(sessionId: string): { x: number; y: number } |
   const entry = pool.get(sessionId);
   if (!entry) return null;
   return getCursorPixelPosition(entry);
+}
+
+/**
+ * Clean a terminal selection string using the buffer's line metadata.
+ *
+ * xterm's getSelection() inserts \n at every visual row boundary, even for
+ * soft-wrapped lines that are logically one line. This function walks the
+ * buffer rows covered by the selection and joins soft-wrapped rows (where
+ * buffer.getLine(row).isWrapped === true) while keeping real newlines.
+ * Each resulting logical line is also trimmed of trailing whitespace.
+ */
+export function cleanSelection(terminal: Terminal, raw: string): string {
+  const sel = terminal.getSelectionPosition?.();
+  // Fallback: if we can't read the selection position, just trim trailing spaces
+  if (!sel) {
+    return raw.split("\n").map(l => l.trimEnd()).join("\n");
+  }
+
+  const buf = terminal.buffer.active;
+  const startRow = sel.start.y;
+
+  const rawLines = raw.split("\n");
+  const result: string[] = [];
+  let current = "";
+
+  for (let i = 0; i < rawLines.length; i++) {
+    const bufRow = startRow + i;
+    const line = buf.getLine(bufRow);
+    const isWrapped = line?.isWrapped ?? false;
+
+    if (isWrapped) {
+      // This row is a continuation of the previous — join without newline.
+      // Trim trailing spaces from the join point to avoid padding.
+      current = current.trimEnd() + rawLines[i];
+    } else {
+      if (i > 0) {
+        result.push(current.trimEnd());
+      }
+      current = rawLines[i];
+    }
+  }
+  result.push(current.trimEnd());
+
+  // Preserve trailing newline if the original selection had one
+  const suffix = raw.endsWith("\n") ? "\n" : "";
+  return result.join("\n") + suffix;
 }

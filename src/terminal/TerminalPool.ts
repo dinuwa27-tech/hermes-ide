@@ -45,6 +45,7 @@ import {
   dismissSuggestionsForEntry,
   getCursorPixelPosition,
   getCursorPosition,
+  cleanSelection,
   type PoolEntry,
 } from "./pool";
 
@@ -500,12 +501,14 @@ export function terminalHasSelection(sessionId: string): boolean {
 }
 
 /** Get the selected text from the terminal (canvas-based selection).
- *  Trims trailing whitespace from each line to avoid padding spaces
- *  that xterm includes when soft-wrapped lines fill the terminal width. */
+ *  Joins soft-wrapped lines and trims trailing whitespace so copied
+ *  text matches the logical content, not the visual terminal layout. */
 export function terminalGetSelection(sessionId: string): string {
-  const raw = pool.get(sessionId)?.terminal.getSelection() ?? "";
-  if (!raw) return raw;
-  return raw.split("\n").map(line => line.trimEnd()).join("\n");
+  const entry = pool.get(sessionId);
+  if (!entry) return "";
+  const raw = entry.terminal.getSelection();
+  if (!raw) return "";
+  return cleanSelection(entry.terminal, raw);
 }
 
 /** Write arbitrary text into the terminal as if pasted (e.g. a file path from a drop event).
