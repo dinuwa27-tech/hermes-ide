@@ -499,9 +499,13 @@ export function terminalHasSelection(sessionId: string): boolean {
   return pool.get(sessionId)?.terminal.hasSelection() ?? false;
 }
 
-/** Get the selected text from the terminal (canvas-based selection). */
+/** Get the selected text from the terminal (canvas-based selection).
+ *  Trims trailing whitespace from each line to avoid padding spaces
+ *  that xterm includes when soft-wrapped lines fill the terminal width. */
 export function terminalGetSelection(sessionId: string): string {
-  return pool.get(sessionId)?.terminal.getSelection() ?? "";
+  const raw = pool.get(sessionId)?.terminal.getSelection() ?? "";
+  if (!raw) return raw;
+  return raw.split("\n").map(line => line.trimEnd()).join("\n");
 }
 
 /** Write arbitrary text into the terminal as if pasted (e.g. a file path from a drop event).

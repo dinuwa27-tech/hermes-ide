@@ -217,6 +217,17 @@ export async function createTerminal(
     handleTerminalInput(sessionId, data);
   });
 
+  // Strip trailing whitespace from copied text (Cmd+C / Ctrl+C).
+  // xterm pads soft-wrapped lines to the full terminal width, which
+  // causes extra spaces when pasting into other applications.
+  container.addEventListener("copy", (e: ClipboardEvent) => {
+    const sel = terminal.getSelection();
+    if (!sel || !e.clipboardData) return;
+    const cleaned = sel.split("\n").map(l => l.trimEnd()).join("\n");
+    e.clipboardData.setData("text/plain", cleaned);
+    e.preventDefault();
+  });
+
   // Track user scroll position to avoid jumping during streaming
   terminal.onScroll(() => {
     const entry = pool.get(sessionId);
