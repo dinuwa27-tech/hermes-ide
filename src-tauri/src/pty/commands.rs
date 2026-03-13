@@ -743,14 +743,25 @@ pub fn create_session(
                 .unwrap_or_default()
         });
         let zdotdir_str = zdotdir.to_string_lossy();
-        log::info!("[SHELL-INTEGRATION] Setting ZDOTDIR={:?}, HERMES_ORIGINAL_ZDOTDIR={:?}", zdotdir, original);
+        log::info!(
+            "[SHELL-INTEGRATION] Setting ZDOTDIR={:?}, HERMES_ORIGINAL_ZDOTDIR={:?}",
+            zdotdir,
+            original
+        );
         cmd.env("HERMES_ORIGINAL_ZDOTDIR", &original);
         cmd.env("ZDOTDIR", zdotdir_str.as_ref());
         // _HERMES_ZDOTDIR remembers our temp dir path so each wrapper script
         // can re-point ZDOTDIR back after sourcing the user's file.
         cmd.env("_HERMES_ZDOTDIR", zdotdir_str.as_ref());
     } else {
-        log::info!("[SHELL-INTEGRATION] No zsh integration (variant: {})", if shell_integration.is_active() { "active-non-zsh" } else { "none" });
+        log::info!(
+            "[SHELL-INTEGRATION] No zsh integration (variant: {})",
+            if shell_integration.is_active() {
+                "active-non-zsh"
+            } else {
+                "none"
+            }
+        );
     }
 
     cmd.cwd(&cwd);

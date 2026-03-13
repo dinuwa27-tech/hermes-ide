@@ -168,7 +168,11 @@ const FISH_INIT_CMD: &str =
 /// - `Bash`: replace `-l` with `--rcfile <path>`
 /// - `Fish`: add `-C <command>` argument
 pub fn setup(shell: &str, session_id: &str) -> ShellIntegration {
-    log::info!("[SHELL-INTEGRATION] setup called: shell={:?}, session={}", shell, session_id);
+    log::info!(
+        "[SHELL-INTEGRATION] setup called: shell={:?}, session={}",
+        shell,
+        session_id
+    );
     let result = if shell.contains("zsh") {
         setup_zsh(session_id)
     } else if shell.contains("bash") {
@@ -178,7 +182,10 @@ pub fn setup(shell: &str, session_id: &str) -> ShellIntegration {
     } else {
         ShellIntegration::None
     };
-    log::info!("[SHELL-INTEGRATION] result: is_active={}", result.is_active());
+    log::info!(
+        "[SHELL-INTEGRATION] result: is_active={}",
+        result.is_active()
+    );
     result
 }
 
@@ -204,12 +211,7 @@ fn setup_zsh(session_id: &str) -> ShellIntegration {
 
     for (name, content) in files {
         if let Err(e) = std::fs::write(dir.join(name), content) {
-            log::warn!(
-                "Failed to write {} for session {}: {}",
-                name,
-                session_id,
-                e
-            );
+            log::warn!("Failed to write {} for session {}: {}", name, session_id, e);
             // Clean up partial directory
             std::fs::remove_dir_all(&dir).ok();
             return ShellIntegration::None;
@@ -370,8 +372,14 @@ mod tests {
 
     #[test]
     fn is_active_returns_correct_value() {
-        assert!(ShellIntegration::Zsh { zdotdir: PathBuf::from("/tmp/test") }.is_active());
-        assert!(ShellIntegration::Bash { rcfile: PathBuf::from("/tmp/test.sh") }.is_active());
+        assert!(ShellIntegration::Zsh {
+            zdotdir: PathBuf::from("/tmp/test")
+        }
+        .is_active());
+        assert!(ShellIntegration::Bash {
+            rcfile: PathBuf::from("/tmp/test.sh")
+        }
+        .is_active());
         assert!(ShellIntegration::Fish.is_active());
         assert!(!ShellIntegration::None.is_active());
     }
@@ -381,7 +389,9 @@ mod tests {
         // .zshenv must: swap ZDOTDIR to user's dir, source user's .zshenv,
         // then re-point ZDOTDIR to our temp dir so zsh finds .zprofile next.
         let lines: Vec<&str> = ZSH_ZSHENV.lines().collect();
-        let swap_line = lines.iter().position(|l| l.contains("ZDOTDIR=\"$_hermes_user\""));
+        let swap_line = lines
+            .iter()
+            .position(|l| l.contains("ZDOTDIR=\"$_hermes_user\""));
         let source_line = lines.iter().position(|l| l.contains("source"));
         let restore_line = lines.iter().position(|l| l.contains("_HERMES_ZDOTDIR"));
         assert!(
@@ -403,8 +413,12 @@ mod tests {
         // User's .zshrc must load BEFORE our overrides, so plugins are
         // already loaded when we disable them.
         let lines: Vec<&str> = ZSH_ZSHRC.lines().collect();
-        let source_line = lines.iter().position(|l| l.contains("source \"$_hermes_user/.zshrc\""));
-        let override_line = lines.iter().position(|l| l.contains("ZSH_AUTOSUGGEST_STRATEGY"));
+        let source_line = lines
+            .iter()
+            .position(|l| l.contains("source \"$_hermes_user/.zshrc\""));
+        let override_line = lines
+            .iter()
+            .position(|l| l.contains("ZSH_AUTOSUGGEST_STRATEGY"));
         assert!(
             source_line.is_some() && override_line.is_some(),
             "Both source and override must exist"
