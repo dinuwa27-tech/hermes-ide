@@ -649,10 +649,10 @@ mod tests {
         // Create first worktree on a branch
         create_worktree(repo_path, "session1", "dup-branch", true).unwrap();
 
-        // Try to create second worktree on same branch with different session — should fail
-        // because the branch is already checked out
-        let result = create_worktree(repo_path, "session2", "dup-branch", false);
-        assert!(result.is_err());
+        // Creating with a different session reuses the existing worktree (shared)
+        let wt2 = create_worktree(repo_path, "session2", "dup-branch", false).unwrap();
+        assert!(wt2.is_shared);
+        assert_eq!(wt2.branch_name, "dup-branch");
     }
 
     // ── remove_worktree ────────────────────────────────────────────────
