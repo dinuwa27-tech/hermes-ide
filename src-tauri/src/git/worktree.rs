@@ -237,11 +237,54 @@ pub fn create_worktree(
 ///
 /// Uses `git worktree remove --force` followed by `git worktree prune`.
 /// Also cleans up the directory if it still lingers after removal.
+///
+/// # Safety
+///
+/// This function contains multiple guards to prevent catastrophic deletion
+/// of project root directories. The `worktree_path` MUST be a linked
+/// worktree inside `.hermes/worktrees/`, never the repo root itself.
 pub fn remove_worktree(
     repo_path: &str,
     _session_id: &str,
     worktree_path: &str,
 ) -> Result<(), String> {
+    // ── SAFETY CHECKS ──────────────────────────────────────────────
+    // These guards exist to prevent accidental deletion of a project
+    // root directory. A bug in a caller could pass the repo root as
+    // worktree_path (e.g. when is_main_worktree is true). If that
+    // happens, `git worktree remove` will fail (main worktree), and
+    // without these guards the fallback `remove_dir_all` would
+    // recursively destroy the entire project.
+
+    // Guard 1: worktree_path must live under .hermes/worktrees/
+    if !worktree_path.contains(".hermes/worktrees/") {
+        return Err(format!(
+            "SAFETY: refusing to remove path outside .hermes/worktrees/: '{}'",
+            worktree_path
+        ));
+    }
+
+    // Guard 2: worktree_path must never equal the repo root
+    let repo_canon = fs::canonicalize(repo_path).ok();
+    let wt_canon = fs::canonicalize(worktree_path).ok();
+    if let (Some(rc), Some(wc)) = (&repo_canon, &wt_canon) {
+        if rc == wc {
+            return Err(format!(
+                "SAFETY: refusing to remove repo root directory: '{}'",
+                worktree_path
+            ));
+        }
+        // Guard 3: worktree_path must not be a parent of the repo root
+        if rc.starts_with(wc) {
+            return Err(format!(
+                "SAFETY: refusing to remove ancestor of repo root: '{}'",
+                worktree_path
+            ));
+        }
+    }
+
+    // ── REMOVAL ────────────────────────────────────────────────────
+
     // Step 1: git worktree remove --force <path>
     let remove_output = Command::new("git")
         .current_dir(repo_path)
@@ -270,6 +313,13 @@ pub fn remove_worktree(
     // Step 3: Clean up the directory if it still exists
     let wt = Path::new(worktree_path);
     if wt.exists() {
+        // Final safety re-check before the destructive operation
+        if !worktree_path.contains(".hermes/worktrees/") {
+            return Err(format!(
+                "SAFETY: last-resort guard prevented remove_dir_all on: '{}'",
+                worktree_path
+            ));
+        }
         fs::remove_dir_all(wt).map_err(|e| {
             format!(
                 "Failed to remove worktree directory '{}': {}",

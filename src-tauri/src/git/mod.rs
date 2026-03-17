@@ -2828,7 +2828,15 @@ pub fn git_remove_worktree(
     let wt_id = wt.id.clone();
     let wt_path = wt.worktree_path.clone();
     let realm_path = realm.path.clone();
+    let is_main = wt.is_main_worktree;
     drop(db);
+
+    // SAFETY: never remove the main worktree (it IS the project root)
+    if is_main {
+        return Err(
+            "Cannot remove the main worktree — it is the project root directory".to_string(),
+        );
+    }
 
     // Journal: log the REMOVE operation before performing it
     let _ = journal::log_operation(&realm_path, "REMOVE", &session_id, &realm_id, "", &wt_path);
