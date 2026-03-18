@@ -2725,11 +2725,7 @@ pub fn import_settings(
 }
 
 /// Check if a plugin has a specific permission granted in the DB.
-fn has_plugin_permission(
-    db: &Database,
-    plugin_id: &str,
-    permission: &str,
-) -> Result<bool, String> {
+fn has_plugin_permission(db: &Database, plugin_id: &str, permission: &str) -> Result<bool, String> {
     let perms = db.get_plugin_permissions(plugin_id)?;
     Ok(perms.iter().any(|p| p == permission))
 }
@@ -2743,8 +2739,8 @@ pub fn save_plugin_metadata(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    let perms_json =
-        serde_json::to_string(&permissions).map_err(|e| format!("Failed to serialize permissions: {}", e))?;
+    let perms_json = serde_json::to_string(&permissions)
+        .map_err(|e| format!("Failed to serialize permissions: {}", e))?;
     db.conn
         .execute(
             "INSERT INTO plugins (id, version, name, permissions_granted) VALUES (?1, ?2, ?3, ?4)

@@ -311,7 +311,11 @@ fn find_manifest_in_dir(dir: &std::path::Path) -> Result<(PathBuf, String), Stri
 /// Fetch a URL and return the response body as a string.
 /// Used by plugins with the "network" permission.
 #[tauri::command]
-pub async fn plugin_fetch_url(url: String, plugin_id: String, state: State<'_, AppState>) -> Result<String, String> {
+pub async fn plugin_fetch_url(
+    url: String,
+    plugin_id: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
     {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         if !db.has_plugin_permission(&plugin_id, "network")? {
