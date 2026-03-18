@@ -1,5 +1,6 @@
 import "../styles/components/Settings.css";
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useResizablePanel } from "../hooks/useResizablePanel";
 import { useTextContextMenu } from "../hooks/useTextContextMenu";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -39,21 +40,15 @@ export function Settings({ onClose, initialTab, pluginRuntime, onConfirmPluginUp
   // Live window size state (separate from DB settings)
   const [winWidth, setWinWidth] = useState("");
   const [winHeight, setWinHeight] = useState("");
-  // Live settings panel size state (persisted separately from the window size)
-  const [panelWidth, setPanelWidth] = useState<number>(560);
-  const [panelHeight, setPanelHeight] = useState<number>(520);
-  const resizingRef = useRef(false);
-  const panelPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const resizeResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const latestPanelWidthRef = useRef(panelWidth);
-  const latestPanelHeightRef = useRef(panelHeight);
-  const resizeListenersRef = useRef<{
-    onMove: (event: MouseEvent) => void;
-    onUp: () => void;
-  } | null>(null);
-  const resizeBodyStylesRef = useRef<{ cursor: string; userSelect: string }>({
-    cursor: "",
-    userSelect: "",
+  const { panelWidth, panelHeight, onResizeWidthStart, onResizeHeightStart, handleOverlayClick } = useResizablePanel({
+    defaultWidth: 560,
+    defaultHeight: 520,
+    minWidth: 420,
+    minHeight: 360,
+    maxWidthRatio: 0.9,
+    maxHeightRatio: 0.7,
+    widthKey: "settings_panel_width",
+    heightKey: "settings_panel_height",
   });
   const resizeUnlisten = useRef<(() => void) | null>(null);
   const programmaticResize = useRef(false);
@@ -72,25 +67,7 @@ export function Settings({ onClose, initialTab, pluginRuntime, onConfirmPluginUp
 
   useEffect(() => {
     getSettings()
-      .then((s) => {
-        setSettings(s);
-
-        const parsedW = parseInt(s.settings_panel_width || "", 10);
-        const parsedH = parseInt(s.settings_panel_height || "", 10);
-
-        // Keep within reasonable bounds even if settings were edited externally.
-        const minW = 420;
-        const minH = 360;
-        const maxW = Math.max(minW, Math.floor((typeof window !== "undefined" ? window.innerWidth : 1440) * 0.9));
-        const maxH = Math.max(minH, Math.floor((typeof window !== "undefined" ? window.innerHeight : 900) * 0.7));
-
-        if (!Number.isNaN(parsedW) && parsedW >= minW) {
-          setPanelWidth(Math.min(parsedW, maxW));
-        }
-        if (!Number.isNaN(parsedH) && parsedH >= minH) {
-          setPanelHeight(Math.min(parsedH, maxH));
-        }
-      })
+      .then((s) => setSettings(s))
       .catch(console.error);
 
     invoke<{ name: string; path: string }[]>("get_available_shells")
@@ -120,122 +97,6 @@ export function Settings({ onClose, initialTab, pluginRuntime, onConfirmPluginUp
       if (applyTimer.current) clearTimeout(applyTimer.current);
     };
   }, []);
-
-  useEffect(() => {
-    latestPanelWidthRef.current = panelWidth;
-  }, [panelWidth]);
-
-  useEffect(() => {
-    latestPanelHeightRef.current = panelHeight;
-  }, [panelHeight]);
-
-  const detachResizeSideEffects = useCallback(() => {
-    if (resizeListenersRef.current) {
-      document.removeEventListener("mousemove", resizeListenersRef.current.onMove);
-      document.removeEventListener("mouseup", resizeListenersRef.current.onUp);
-      resizeListenersRef.current = null;
-    }
-
-    document.body.style.cursor = resizeBodyStylesRef.current.cursor;
-    document.body.style.userSelect = resizeBodyStylesRef.current.userSelect;
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (panelPersistTimerRef.current) clearTimeout(panelPersistTimerRef.current);
-      if (resizeResetTimerRef.current) clearTimeout(resizeResetTimerRef.current);
-      detachResizeSideEffects();
-      resizingRef.current = false;
-    };
-  }, [detachResizeSideEffects]);
-
-  const persistPanelSize = useCallback((w: number, h: number) => {
-    if (panelPersistTimerRef.current) clearTimeout(panelPersistTimerRef.current);
-    panelPersistTimerRef.current = setTimeout(() => {
-      setSetting("settings_panel_width", String(Math.round(w))).catch(console.error);
-      setSetting("settings_panel_height", String(Math.round(h))).catch(console.error);
-    }, 120);
-  }, []);
-
-  const onResizeWidthStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    resizingRef.current = true;
-    const startX = e.clientX;
-    const startW = latestPanelWidthRef.current;
-    const minW = 420;
-    const maxW = Math.max(minW, Math.floor(window.innerWidth * 0.9));
-
-    detachResizeSideEffects();
-    resizeBodyStylesRef.current = {
-      cursor: document.body.style.cursor,
-      userSelect: document.body.style.userSelect,
-    };
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-
-    const onMove = (ev: MouseEvent) => {
-      const delta = ev.clientX - startX;
-      const nextW = Math.max(minW, Math.min(maxW, startW + delta));
-      setPanelWidth(nextW);
-    };
-
-    const onUp = () => {
-      const w = latestPanelWidthRef.current;
-      const h = latestPanelHeightRef.current;
-      persistPanelSize(w, h);
-      detachResizeSideEffects();
-
-      // Delay clearing so that an "outside click" caused by the mouseup
-      // doesn't close the overlay right after the resize ends.
-      if (resizeResetTimerRef.current) clearTimeout(resizeResetTimerRef.current);
-      resizeResetTimerRef.current = setTimeout(() => { resizingRef.current = false; }, 80);
-    };
-
-    resizeListenersRef.current = { onMove, onUp };
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  }, [detachResizeSideEffects, persistPanelSize]);
-
-  const onResizeHeightStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    resizingRef.current = true;
-    const startY = e.clientY;
-    const startH = latestPanelHeightRef.current;
-    const minH = 360;
-    const maxH = Math.max(minH, Math.floor(window.innerHeight * 0.7));
-
-    detachResizeSideEffects();
-    resizeBodyStylesRef.current = {
-      cursor: document.body.style.cursor,
-      userSelect: document.body.style.userSelect,
-    };
-    document.body.style.cursor = "row-resize";
-    document.body.style.userSelect = "none";
-
-    const onMove = (ev: MouseEvent) => {
-      const delta = ev.clientY - startY;
-      const nextH = Math.max(minH, Math.min(maxH, startH + delta));
-      setPanelHeight(nextH);
-    };
-
-    const onUp = () => {
-      const w = latestPanelWidthRef.current;
-      const h = latestPanelHeightRef.current;
-      persistPanelSize(w, h);
-      detachResizeSideEffects();
-
-      // Delay clearing so that an "outside click" caused by the mouseup
-      // doesn't close the overlay right after the resize ends.
-      if (resizeResetTimerRef.current) clearTimeout(resizeResetTimerRef.current);
-      resizeResetTimerRef.current = setTimeout(() => { resizingRef.current = false; }, 80);
-    };
-
-    resizeListenersRef.current = { onMove, onUp };
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  }, [detachResizeSideEffects, persistPanelSize]);
 
   const AUTONOMOUS_KEYS: Record<string, string> = {
     auto_command_min_frequency: "commandMinFrequency",
@@ -326,7 +187,7 @@ export function Settings({ onClose, initialTab, pluginRuntime, onConfirmPluginUp
   return (
     <div
       className="settings-overlay"
-      onClick={() => { if (resizingRef.current) return; onClose(); }}
+      onClick={() => handleOverlayClick(onClose)}
       role="dialog"
       aria-modal="true"
       aria-label="Settings"

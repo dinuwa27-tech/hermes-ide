@@ -1,5 +1,6 @@
 import "../styles/components/SessionCreator.css";
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useResizablePanel } from "../hooks/useResizablePanel";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Project } from "../hooks/useSessionProjects";
 import { CreateSessionOpts } from "../state/SessionContext";
@@ -88,21 +89,15 @@ export function SessionCreator({ onClose, onCreate, defaultGroup }: SessionCreat
   const aiStepRef = useRef<HTMLDivElement>(null);
   const labelRef = useRef<HTMLInputElement>(null);
 
-  // Live New Session box size state (persisted separately from the window size)
-  const [panelWidth, setPanelWidth] = useState<number>(480);
-  const [panelHeight, setPanelHeight] = useState<number>(620);
-  const latestPanelWidthRef = useRef(panelWidth);
-  const latestPanelHeightRef = useRef(panelHeight);
-  const resizingRef = useRef(false);
-  const panelPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const resizeResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const resizeListenersRef = useRef<{
-    onMove: (event: MouseEvent) => void;
-    onUp: () => void;
-  } | null>(null);
-  const resizeBodyStylesRef = useRef<{ cursor: string; userSelect: string }>({
-    cursor: "",
-    userSelect: "",
+  const { panelWidth, panelHeight, onResizeWidthStart, onResizeHeightStart, handleOverlayClick } = useResizablePanel({
+    defaultWidth: 480,
+    defaultHeight: 620,
+    minWidth: 380,
+    minHeight: 360,
+    maxWidthRatio: 0.92,
+    maxHeightRatio: 0.78,
+    widthKey: "session_creator_panel_width",
+    heightKey: "session_creator_panel_height",
   });
 
   // Project (group) assignment state
@@ -255,142 +250,6 @@ export function SessionCreator({ onClose, onCreate, defaultGroup }: SessionCreat
       })
       .catch((err) => console.warn("[SessionCreator] Failed to load sessions:", err));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    latestPanelWidthRef.current = panelWidth;
-  }, [panelWidth]);
-
-  useEffect(() => {
-    latestPanelHeightRef.current = panelHeight;
-  }, [panelHeight]);
-
-  const detachResizeSideEffects = useCallback(() => {
-    if (resizeListenersRef.current) {
-      document.removeEventListener("mousemove", resizeListenersRef.current.onMove);
-      document.removeEventListener("mouseup", resizeListenersRef.current.onUp);
-      resizeListenersRef.current = null;
-    }
-
-    document.body.style.cursor = resizeBodyStylesRef.current.cursor;
-    document.body.style.userSelect = resizeBodyStylesRef.current.userSelect;
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (panelPersistTimerRef.current) clearTimeout(panelPersistTimerRef.current);
-      if (resizeResetTimerRef.current) clearTimeout(resizeResetTimerRef.current);
-      detachResizeSideEffects();
-      resizingRef.current = false;
-    };
-  }, [detachResizeSideEffects]);
-
-  useEffect(() => {
-    // Restore persisted panel size (if available)
-    const read = async () => {
-      try {
-        const rawW = parseInt(await getSetting("session_creator_panel_width"), 10);
-        const rawH = parseInt(await getSetting("session_creator_panel_height"), 10);
-
-        const minW = 380;
-        const minH = 360;
-        const maxW = Math.max(minW, Math.floor(window.innerWidth * 0.92));
-        const maxH = Math.max(minH, Math.floor(window.innerHeight * 0.78));
-
-        if (!Number.isNaN(rawW) && rawW >= minW) setPanelWidth(Math.min(rawW, maxW));
-        if (!Number.isNaN(rawH) && rawH >= minH) setPanelHeight(Math.min(rawH, maxH));
-      } catch {
-        // ignore: settings may not exist yet
-      }
-    };
-    read();
-  }, []);
-
-  const persistPanelSize = useCallback((w: number, h: number) => {
-    if (panelPersistTimerRef.current) clearTimeout(panelPersistTimerRef.current);
-    panelPersistTimerRef.current = setTimeout(() => {
-      setSetting("session_creator_panel_width", String(Math.round(w))).catch(console.error);
-      setSetting("session_creator_panel_height", String(Math.round(h))).catch(console.error);
-    }, 120);
-  }, []);
-
-  const onResizeWidthStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    resizingRef.current = true;
-
-    const startX = e.clientX;
-    const startW = latestPanelWidthRef.current;
-    const minW = 380;
-    const maxW = Math.max(minW, Math.floor(window.innerWidth * 0.92));
-
-    detachResizeSideEffects();
-    resizeBodyStylesRef.current = {
-      cursor: document.body.style.cursor,
-      userSelect: document.body.style.userSelect,
-    };
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-
-    const onMove = (ev: MouseEvent) => {
-      const delta = ev.clientX - startX;
-      const nextW = Math.max(minW, Math.min(maxW, startW + delta));
-      setPanelWidth(nextW);
-    };
-
-    const onUp = () => {
-      const w = latestPanelWidthRef.current;
-      const h = latestPanelHeightRef.current;
-      persistPanelSize(w, h);
-      detachResizeSideEffects();
-
-      // Delay clearing so an "outside click" caused by mouseup doesn't close the overlay.
-      if (resizeResetTimerRef.current) clearTimeout(resizeResetTimerRef.current);
-      resizeResetTimerRef.current = setTimeout(() => { resizingRef.current = false; }, 80);
-    };
-
-    resizeListenersRef.current = { onMove, onUp };
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  }, [detachResizeSideEffects, persistPanelSize]);
-
-  const onResizeHeightStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    resizingRef.current = true;
-
-    const startY = e.clientY;
-    const startH = latestPanelHeightRef.current;
-    const minH = 360;
-    const maxH = Math.max(minH, Math.floor(window.innerHeight * 0.78));
-
-    detachResizeSideEffects();
-    resizeBodyStylesRef.current = {
-      cursor: document.body.style.cursor,
-      userSelect: document.body.style.userSelect,
-    };
-    document.body.style.cursor = "row-resize";
-    document.body.style.userSelect = "none";
-
-    const onMove = (ev: MouseEvent) => {
-      const delta = ev.clientY - startY;
-      const nextH = Math.max(minH, Math.min(maxH, startH + delta));
-      setPanelHeight(nextH);
-    };
-
-    const onUp = () => {
-      const w = latestPanelWidthRef.current;
-      const h = latestPanelHeightRef.current;
-      persistPanelSize(w, h);
-      detachResizeSideEffects();
-
-      if (resizeResetTimerRef.current) clearTimeout(resizeResetTimerRef.current);
-      resizeResetTimerRef.current = setTimeout(() => { resizingRef.current = false; }, 80);
-    };
-
-    resizeListenersRef.current = { onMove, onUp };
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  }, [detachResizeSideEffects, persistPanelSize]);
 
   // Discover tmux sessions when entering the tmux step.
   // If tmux is not installed, skip straight to confirm.
@@ -664,7 +523,7 @@ export function SessionCreator({ onClose, onCreate, defaultGroup }: SessionCreat
   return (
     <div
       className="command-palette-overlay"
-      onClick={() => { if (resizingRef.current) return; onClose(); }}
+      onClick={() => handleOverlayClick(onClose)}
       role="dialog"
       aria-modal="true"
     >
