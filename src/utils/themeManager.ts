@@ -1,27 +1,42 @@
 import { updateSettings } from "../terminal/TerminalPool";
 
-export const THEME_OPTIONS = [
+export const DARK_THEMES = [
   { id: "dark", label: "Dark" },
+  { id: "frosted-dark", label: "Frosted Dark" },
   { id: "hacker", label: "Hacker" },
-  { id: "designer", label: "Atelier" },
-  { id: "data", label: "Deep Lab" },
-  { id: "corporate", label: "Enterprise" },
   { id: "nightowl", label: "Night Owl" },
   { id: "tron", label: "Tron" },
   { id: "duel", label: "Duel" },
-  { id: "rainbow", label: "Rainbow" },
   { id: "80s", label: "80s" },
+  { id: "midnight", label: "Midnight Commander" },
+  { id: "neon-sunset", label: "Neon Sunset" },
+  { id: "polar", label: "Polar" },
+  { id: "reactor", label: "Reactor" },
+  { id: "amber", label: "Amber" },
+  { id: "macchiato", label: "Macchiato" },
+  { id: "shibuya", label: "Shibuya" },
+  { id: "solarized-dark", label: "Solarized Dark" },
+  { id: "evergreen", label: "Evergreen" },
+  { id: "cobalt", label: "Cobalt" },
+  { id: "minimal-dark", label: "Minimal Dark" },
+  { id: "transilvania", label: "Transilvania" },
+  { id: "rainbow", label: "Rainbow" },
+  { id: "data", label: "Deep Lab" },
+  { id: "corporate", label: "Enterprise" },
+  { id: "designer", label: "Atelier" },
+] as const;
+
+export const LIGHT_THEMES = [
   { id: "light", label: "Light" },
+  { id: "frosted-light", label: "Frosted Light" },
+  { id: "solarized", label: "Solarized Light" },
   { id: "rose", label: "Rosé" },
   { id: "lavender", label: "Lavender" },
   { id: "mint", label: "Mint" },
   { id: "sand", label: "Sand" },
-  { id: "frosted-light", label: "Frosted Light" },
-  { id: "frosted-dark", label: "Frosted Dark" },
-  { id: "solarized", label: "Solarized Light" },
-  { id: "midnight", label: "Midnight Commander" },
-  { id: "transilvania", label: "Transilvania" },
 ] as const;
+
+export const THEME_OPTIONS = [...DARK_THEMES, ...LIGHT_THEMES] as const;
 
 export const UI_SCALE_OPTIONS = [
   { id: "compact", label: "Compact (90%)" },

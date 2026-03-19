@@ -5,7 +5,7 @@ import { useTextContextMenu } from "../hooks/useTextContextMenu";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
-import { applyTheme, THEME_OPTIONS, UI_SCALE_OPTIONS } from "../utils/themeManager";
+import { applyTheme, DARK_THEMES, LIGHT_THEMES, UI_SCALE_OPTIONS } from "../utils/themeManager";
 import { fmt } from "../utils/platform";
 import { useSession } from "../state/SessionContext";
 import { invoke } from "@tauri-apps/api/core";
@@ -25,8 +25,6 @@ interface SettingsProps {
   onConfirmPluginUpdate?: (plugin: import("../plugins/types").RegistryPlugin) => void;
   pluginRefreshTrigger?: number;
 }
-
-const THEMES = THEME_OPTIONS;
 
 export function Settings({ onClose, initialTab, pluginRuntime, onConfirmPluginUpdate, pluginRefreshTrigger }: SettingsProps) {
   const [settings, setSettings] = useState<SettingsMap>({});
@@ -325,15 +323,37 @@ export function Settings({ onClose, initialTab, pluginRuntime, onConfirmPluginUp
               <div className="settings-section">
                 <div className="settings-group">
                   <label className="settings-label">Theme</label>
-                  <select
-                    className="settings-select"
-                    value={settings.theme || "frosted-dark"}
-                    onChange={(e) => updateSetting("theme", e.target.value)}
+                  <div
+                    className="settings-theme-grid"
+                    onMouseLeave={() => {
+                      const saved = settings.theme || "frosted-dark";
+                      applyTheme(saved, settings);
+                    }}
                   >
-                    {THEMES.map((t) => (
-                      <option key={t.id} value={t.id}>{t.label}</option>
+                    <span className="settings-theme-group-label">Dark</span>
+                    {DARK_THEMES.map((t) => (
+                      <button
+                        key={t.id}
+                        className={`settings-theme-item${(settings.theme || "frosted-dark") === t.id ? " settings-theme-item-active" : ""}`}
+                        onClick={() => updateSetting("theme", t.id)}
+                        onMouseEnter={() => applyTheme(t.id, { ...settings, theme: t.id })}
+                      >
+                        {t.label}
+                      </button>
                     ))}
-                  </select>
+                    <div className="settings-theme-separator" />
+                    <span className="settings-theme-group-label">Light</span>
+                    {LIGHT_THEMES.map((t) => (
+                      <button
+                        key={t.id}
+                        className={`settings-theme-item${(settings.theme || "frosted-dark") === t.id ? " settings-theme-item-active" : ""}`}
+                        onClick={() => updateSetting("theme", t.id)}
+                        onMouseEnter={() => applyTheme(t.id, { ...settings, theme: t.id })}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="settings-group">

@@ -6,7 +6,7 @@ import { useActiveSession, useSessionList, useTotalCost, useTotalTokens, useExec
 import { PLATFORM, OS_VERSION } from "../utils/platform";
 import { useContextMenu, menuItem } from "../hooks/useContextMenu";
 import { fmt } from "../utils/platform";
-import { THEME_OPTIONS, applyTheme } from "../utils/themeManager";
+import { DARK_THEMES, LIGHT_THEMES, applyTheme } from "../utils/themeManager";
 
 function formatTokens(n: number): string {
   if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
@@ -232,26 +232,45 @@ const THEME_COLORS: Record<string, string> = {
   "frosted-dark": "#0a84ff",
   solarized: "#268bd2",
   midnight: "#1a6caa",
+  "neon-sunset": "#f92672",
+  polar: "#88c0d0",
+  reactor: "#61afef",
+  amber: "#fe8019",
+  macchiato: "#cba6f7",
+  shibuya: "#7aa2f7",
+  "solarized-dark": "#268bd2",
+  evergreen: "#a7c080",
+  cobalt: "#ffc600",
+  "minimal-dark": "#58a6ff",
+  transilvania: "#bd93f9",
 };
 
 function ThemePicker() {
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState("frosted-dark");
+  const savedThemeRef = useRef("frosted-dark");
   const btnRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
 
   // Load current theme on mount
   useEffect(() => {
-    getSetting("theme").then((v) => { if (v) setCurrent(v); }).catch(() => {});
+    getSetting("theme").then((v) => {
+      if (v) {
+        setCurrent(v);
+        savedThemeRef.current = v;
+      }
+    }).catch(() => {});
   }, []);
 
-  // Close on outside click
+  // Close on outside click — restore theme if not committed
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
       const t = e.target as Node;
       if (btnRef.current?.contains(t) || popRef.current?.contains(t)) return;
+      // Restore saved theme on close without selection
+      getSettings().then((all) => applyTheme(savedThemeRef.current, { ...all, theme: savedThemeRef.current })).catch(() => {});
       setOpen(false);
     };
     document.addEventListener("mousedown", handler);
@@ -262,12 +281,24 @@ function ThemePicker() {
     if (!open && btnRef.current) {
       const r = btnRef.current.getBoundingClientRect();
       setPos({ x: r.right, y: r.top });
+      savedThemeRef.current = current;
     }
     setOpen((o) => !o);
   };
 
+  const preview = async (id: string) => {
+    const all = await getSettings();
+    applyTheme(id, { ...all, theme: id });
+  };
+
+  const restorePreview = async () => {
+    const all = await getSettings();
+    applyTheme(savedThemeRef.current, { ...all, theme: savedThemeRef.current });
+  };
+
   const select = async (id: string) => {
     setCurrent(id);
+    savedThemeRef.current = id;
     setOpen(false);
     await setSetting("theme", id);
     const all = await getSettings();
@@ -291,13 +322,33 @@ function ThemePicker() {
         <div
           ref={popRef}
           className="status-theme-popover"
-          style={{ right: `${window.innerWidth - pos.x}px`, bottom: `${window.innerHeight - pos.y + 4}px` }}
+          style={{ right: `${window.innerWidth - pos.x}px`, bottom: `${window.innerHeight - pos.y + 4}px`, maxHeight: "min(400px, 70vh)", overflowY: "auto" }}
+          onMouseLeave={restorePreview}
         >
-          {THEME_OPTIONS.map((t) => (
+          <div className="status-theme-group-label">Dark</div>
+          {DARK_THEMES.map((t) => (
             <button
               key={t.id}
               className={`status-theme-option ${current === t.id ? "active" : ""}`}
               onClick={() => select(t.id)}
+              onMouseEnter={() => preview(t.id)}
+              title={t.label}
+            >
+              <span
+                className="status-theme-swatch"
+                style={{ background: THEME_COLORS[t.id] || "#888" }}
+              />
+              {t.label}
+            </button>
+          ))}
+          <div className="status-theme-separator" />
+          <div className="status-theme-group-label">Light</div>
+          {LIGHT_THEMES.map((t) => (
+            <button
+              key={t.id}
+              className={`status-theme-option ${current === t.id ? "active" : ""}`}
+              onClick={() => select(t.id)}
+              onMouseEnter={() => preview(t.id)}
               title={t.label}
             >
               <span

@@ -266,3 +266,18 @@
   flex-shrink: 0;
   box-shadow: 0 0 4px currentColor;
 }
+
+.status-theme-separator {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+.status-theme-group-label {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 4px 10px 2px;
+}
