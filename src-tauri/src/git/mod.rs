@@ -2759,7 +2759,8 @@ pub fn git_create_worktree(
     drop(db);
 
     // Journal: log the CREATE operation before performing it
-    let intended_path = worktree::worktree_path_for_session(&app_data_dir, &realm_path, &session_id, &branch_name);
+    let intended_path =
+        worktree::worktree_path_for_session(&app_data_dir, &realm_path, &session_id, &branch_name);
     let _ = journal::log_operation(
         &app_data_dir,
         &realm_path,
@@ -2771,7 +2772,13 @@ pub fn git_create_worktree(
     );
 
     // 2. Create the worktree
-    let result = worktree::create_worktree(&app_data_dir, &realm_path, &session_id, &branch_name, create_branch)?;
+    let result = worktree::create_worktree(
+        &app_data_dir,
+        &realm_path,
+        &session_id,
+        &branch_name,
+        create_branch,
+    )?;
 
     // 3. Insert into session_worktrees table — if this fails, roll back the worktree
     let id = uuid::Uuid::new_v4().to_string();
@@ -2851,7 +2858,15 @@ pub fn git_remove_worktree(
         .map_err(|e| format!("Failed to get app data dir: {}", e))?;
 
     // Journal: log the REMOVE operation before performing it
-    let _ = journal::log_operation(&app_data_dir, &realm_path, "REMOVE", &session_id, &realm_id, "", &wt_path);
+    let _ = journal::log_operation(
+        &app_data_dir,
+        &realm_path,
+        "REMOVE",
+        &session_id,
+        &realm_id,
+        "",
+        &wt_path,
+    );
 
     // 2. Try to remove the worktree from the filesystem
     let remove_result = worktree::remove_worktree(&realm_path, &session_id, &wt_path);

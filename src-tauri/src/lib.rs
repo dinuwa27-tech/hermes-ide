@@ -78,7 +78,10 @@ fn cleanup_stale_worktrees(app: &tauri::AppHandle, database: &db::Database) {
     let app_data_dir = match app.path().app_data_dir() {
         Ok(dir) => dir,
         Err(e) => {
-            log::warn!("Startup worktree cleanup: failed to get app data dir: {}", e);
+            log::warn!(
+                "Startup worktree cleanup: failed to get app data dir: {}",
+                e
+            );
             return;
         }
     };
@@ -273,7 +276,9 @@ fn cleanup_stale_worktrees(app: &tauri::AppHandle, database: &db::Database) {
                 let _ = std::fs::remove_dir_all(&old_worktree_dir);
             }
             // Also clean up the old journal file
-            let old_journal = Path::new(&realm.path).join(".hermes").join("worktree-journal.log");
+            let old_journal = Path::new(&realm.path)
+                .join(".hermes")
+                .join("worktree-journal.log");
             if old_journal.exists() {
                 let _ = std::fs::remove_file(&old_journal);
             }

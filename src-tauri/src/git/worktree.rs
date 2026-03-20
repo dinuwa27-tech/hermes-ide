@@ -72,8 +72,7 @@ fn fnv1a_hash(input: &[u8]) -> u64 {
 /// Canonicalizes the path first so that different string representations
 /// of the same directory produce the same hash.
 pub fn repo_path_hash(repo_path: &str) -> String {
-    let canonical = fs::canonicalize(repo_path)
-        .unwrap_or_else(|_| PathBuf::from(repo_path));
+    let canonical = fs::canonicalize(repo_path).unwrap_or_else(|_| PathBuf::from(repo_path));
     let hash = fnv1a_hash(canonical.to_string_lossy().as_bytes());
     format!("{:016x}", hash)
 }
@@ -100,8 +99,7 @@ pub fn worktree_dir(app_data_dir: &Path, repo_path: &str) -> PathBuf {
     // Write repo_path.txt so cleanup can find the original repo
     let marker = dir.join("repo_path.txt");
     if !marker.exists() {
-        let canonical = fs::canonicalize(repo_path)
-            .unwrap_or_else(|_| PathBuf::from(repo_path));
+        let canonical = fs::canonicalize(repo_path).unwrap_or_else(|_| PathBuf::from(repo_path));
         let _ = fs::write(&marker, canonical.to_string_lossy().as_bytes());
     }
     dir
@@ -580,12 +578,8 @@ mod tests {
     #[test]
     fn test_worktree_path_for_session_structure() {
         let app_data = create_test_app_data_dir();
-        let path = worktree_path_for_session(
-            app_data.path(),
-            "/repo",
-            "abc12345-extra",
-            "feature/auth",
-        );
+        let path =
+            worktree_path_for_session(app_data.path(), "/repo", "abc12345-extra", "feature/auth");
         let path_str = path.to_string_lossy();
         assert!(path_str.contains("hermes-worktrees"));
         assert!(path_str.contains("abc12345_feature-auth"));
@@ -594,12 +588,7 @@ mod tests {
     #[test]
     fn test_worktree_path_for_session_truncates_id() {
         let app_data = create_test_app_data_dir();
-        let path = worktree_path_for_session(
-            app_data.path(),
-            "/repo",
-            "abcdefghijklmnop",
-            "main",
-        );
+        let path = worktree_path_for_session(app_data.path(), "/repo", "abcdefghijklmnop", "main");
         let dirname = path.file_name().unwrap().to_string_lossy();
         assert!(dirname.starts_with("abcdefgh_"));
     }
@@ -640,7 +629,13 @@ mod tests {
         let repo_dir = create_test_repo();
         let repo_path = repo_dir.path().to_str().unwrap();
 
-        let result = create_worktree(app_data.path(), repo_path, "session123", "test-branch", true);
+        let result = create_worktree(
+            app_data.path(),
+            repo_path,
+            "session123",
+            "test-branch",
+            true,
+        );
         assert!(result.is_ok(), "create_worktree failed: {:?}", result.err());
 
         let wt = result.unwrap();
@@ -665,7 +660,13 @@ mod tests {
             .output()
             .unwrap();
 
-        let result = create_worktree(app_data.path(), repo_path, "session456", "existing-branch", false);
+        let result = create_worktree(
+            app_data.path(),
+            repo_path,
+            "session456",
+            "existing-branch",
+            false,
+        );
         assert!(result.is_ok(), "create_worktree failed: {:?}", result.err());
 
         let wt = result.unwrap();
@@ -678,9 +679,11 @@ mod tests {
         let repo_dir = create_test_repo();
         let repo_path = repo_dir.path().to_str().unwrap();
 
-        let wt1 = create_worktree(app_data.path(), repo_path, "session1", "my-branch", true).unwrap();
+        let wt1 =
+            create_worktree(app_data.path(), repo_path, "session1", "my-branch", true).unwrap();
         // Calling again with the same session+branch should return the existing one
-        let wt2 = create_worktree(app_data.path(), repo_path, "session1", "my-branch", true).unwrap();
+        let wt2 =
+            create_worktree(app_data.path(), repo_path, "session1", "my-branch", true).unwrap();
 
         assert_eq!(wt1.worktree_path, wt2.worktree_path);
     }
@@ -688,7 +691,13 @@ mod tests {
     #[test]
     fn test_create_worktree_invalid_repo_path() {
         let app_data = create_test_app_data_dir();
-        let result = create_worktree(app_data.path(), "/nonexistent/path", "session1", "branch", true);
+        let result = create_worktree(
+            app_data.path(),
+            "/nonexistent/path",
+            "session1",
+            "branch",
+            true,
+        );
         assert!(result.is_err());
     }
 
@@ -702,7 +711,8 @@ mod tests {
         create_worktree(app_data.path(), repo_path, "session1", "dup-branch", true).unwrap();
 
         // Creating with a different session reuses the existing worktree (shared)
-        let wt2 = create_worktree(app_data.path(), repo_path, "session2", "dup-branch", false).unwrap();
+        let wt2 =
+            create_worktree(app_data.path(), repo_path, "session2", "dup-branch", false).unwrap();
         assert!(wt2.is_shared);
         assert_eq!(wt2.branch_name, "dup-branch");
     }
@@ -715,7 +725,8 @@ mod tests {
         let repo_dir = create_test_repo();
         let repo_path = repo_dir.path().to_str().unwrap();
 
-        let wt = create_worktree(app_data.path(), repo_path, "session1", "temp-branch", true).unwrap();
+        let wt =
+            create_worktree(app_data.path(), repo_path, "session1", "temp-branch", true).unwrap();
         assert!(Path::new(&wt.worktree_path).exists());
 
         let result = remove_worktree(repo_path, "session1", &wt.worktree_path);
@@ -729,7 +740,8 @@ mod tests {
         let repo_dir = create_test_repo();
         let repo_path = repo_dir.path().to_str().unwrap();
 
-        let wt = create_worktree(app_data.path(), repo_path, "session1", "gone-branch", true).unwrap();
+        let wt =
+            create_worktree(app_data.path(), repo_path, "session1", "gone-branch", true).unwrap();
         // Manually delete the directory
         std::fs::remove_dir_all(&wt.worktree_path).unwrap();
 
@@ -755,8 +767,22 @@ mod tests {
         let repo_dir = create_test_repo();
         let repo_path = repo_dir.path().to_str().unwrap();
 
-        create_worktree(app_data.path(), repo_path, "session1", "list-branch-a", true).unwrap();
-        create_worktree(app_data.path(), repo_path, "session2", "list-branch-b", true).unwrap();
+        create_worktree(
+            app_data.path(),
+            repo_path,
+            "session1",
+            "list-branch-a",
+            true,
+        )
+        .unwrap();
+        create_worktree(
+            app_data.path(),
+            repo_path,
+            "session2",
+            "list-branch-b",
+            true,
+        )
+        .unwrap();
 
         let list = list_worktrees(repo_path).unwrap();
         assert_eq!(list.len(), 2);
@@ -768,7 +794,8 @@ mod tests {
         let repo_dir = create_test_repo();
         let repo_path = repo_dir.path().to_str().unwrap();
 
-        let wt = create_worktree(app_data.path(), repo_path, "session1", "remove-me", true).unwrap();
+        let wt =
+            create_worktree(app_data.path(), repo_path, "session1", "remove-me", true).unwrap();
         assert_eq!(list_worktrees(repo_path).unwrap().len(), 1);
 
         remove_worktree(repo_path, "session1", &wt.worktree_path).unwrap();
@@ -799,7 +826,14 @@ mod tests {
         let repo_dir = create_test_repo();
         let repo_path = repo_dir.path().to_str().unwrap();
 
-        let wt = create_worktree(app_data.path(), repo_path, "session1", "linked-branch", true).unwrap();
+        let wt = create_worktree(
+            app_data.path(),
+            repo_path,
+            "session1",
+            "linked-branch",
+            true,
+        )
+        .unwrap();
         let branch = get_worktree_branch(&wt.worktree_path).unwrap();
         assert_eq!(branch, Some("linked-branch".to_string()));
     }
@@ -856,7 +890,8 @@ mod tests {
         let repo_dir = create_test_repo();
         let repo_path = repo_dir.path().to_str().unwrap();
 
-        let wt = create_worktree(app_data.path(), repo_path, "session1", "my-branch", true).unwrap();
+        let wt =
+            create_worktree(app_data.path(), repo_path, "session1", "my-branch", true).unwrap();
 
         // Should be unavailable without exclude
         assert!(!is_branch_available(repo_path, "my-branch", None).unwrap());
@@ -893,7 +928,8 @@ mod tests {
         let repo_path = repo_dir.path().to_str().unwrap();
 
         // Create a worktree then manually delete its directory to make it stale
-        let wt = create_worktree(app_data.path(), repo_path, "session1", "stale-branch", true).unwrap();
+        let wt =
+            create_worktree(app_data.path(), repo_path, "session1", "stale-branch", true).unwrap();
         assert_eq!(list_worktrees(repo_path).unwrap().len(), 1);
 
         std::fs::remove_dir_all(&wt.worktree_path).unwrap();
@@ -907,10 +943,16 @@ mod tests {
 
     #[test]
     fn test_is_hermes_worktree_path() {
-        assert!(is_hermes_worktree_path("/app/data/hermes-worktrees/abc123/sess_main"));
-        assert!(is_hermes_worktree_path("C:\\app\\hermes-worktrees\\abc\\sess_main"));
+        assert!(is_hermes_worktree_path(
+            "/app/data/hermes-worktrees/abc123/sess_main"
+        ));
+        assert!(is_hermes_worktree_path(
+            "C:\\app\\hermes-worktrees\\abc\\sess_main"
+        ));
         assert!(!is_hermes_worktree_path("/Users/dev/project/src"));
-        assert!(!is_hermes_worktree_path("/Users/dev/project/.hermes/worktrees/abc"));
+        assert!(!is_hermes_worktree_path(
+            "/Users/dev/project/.hermes/worktrees/abc"
+        ));
     }
 
     // ── WorktreeCreateResult serialization ─────────────────────────────
