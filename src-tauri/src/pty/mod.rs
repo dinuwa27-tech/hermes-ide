@@ -198,7 +198,7 @@ impl PtyManager {
 
 // ─── Helper Functions ───────────────────────────────────────────────
 
-pub(crate) fn ai_launch_command(provider: &str, auto_approve: bool, channels: &[String]) -> Option<String> {
+pub(crate) fn ai_launch_command(provider: &str, auto_approve: bool) -> Option<String> {
     let base = match provider {
         "claude" => "claude",
         "aider" => "aider",
@@ -218,13 +218,18 @@ pub(crate) fn ai_launch_command(provider: &str, auto_approve: bool, channels: &[
         };
         cmd.push_str(flag);
     }
-    // Append channels (Claude-only feature)
-    if provider == "claude" {
-        for ch in channels {
-            cmd.push_str(&format!(" --channels {}", ch));
-        }
-    }
     Some(cmd)
+}
+
+/// Build the `--channels` suffix for Claude sessions.
+/// Returned separately so it can be appended AFTER the prompt argument
+/// (Claude CLI treats positional args after --channels as channel entries).
+pub(crate) fn channels_suffix(channels: &[String]) -> String {
+    let mut suffix = String::new();
+    for ch in channels {
+        suffix.push_str(&format!(" --channels {}", ch));
+    }
+    suffix
 }
 
 pub(crate) fn detect_shell() -> String {
@@ -622,78 +627,68 @@ mod tests {
         use super::ai_launch_command;
 
         // Without auto-approve
-        assert_eq!(ai_launch_command("claude", false, &[]), Some("claude".into()));
-        assert_eq!(ai_launch_command("aider", false, &[]), Some("aider".into()));
-        assert_eq!(ai_launch_command("codex", false, &[]), Some("codex".into()));
-        assert_eq!(ai_launch_command("gemini", false, &[]), Some("gemini".into()));
+        assert_eq!(ai_launch_command("claude", false), Some("claude".into()));
+        assert_eq!(ai_launch_command("aider", false), Some("aider".into()));
+        assert_eq!(ai_launch_command("codex", false), Some("codex".into()));
+        assert_eq!(ai_launch_command("gemini", false), Some("gemini".into()));
         assert_eq!(
-            ai_launch_command("copilot", false, &[]),
+            ai_launch_command("copilot", false),
             Some("gh copilot".into())
         );
-        assert_eq!(ai_launch_command("unknown", false, &[]), None);
+        assert_eq!(ai_launch_command("unknown", false), None);
 
         // With auto-approve
         assert_eq!(
-            ai_launch_command("claude", true, &[]),
+            ai_launch_command("claude", true),
             Some("claude --dangerously-skip-permissions".into())
         );
-        assert_eq!(ai_launch_command("aider", true, &[]), Some("aider --yes".into()));
+        assert_eq!(ai_launch_command("aider", true), Some("aider --yes".into()));
         assert_eq!(
-            ai_launch_command("codex", true, &[]),
+            ai_launch_command("codex", true),
             Some("codex --full-auto".into())
         );
         assert_eq!(
-            ai_launch_command("gemini", true, &[]),
+            ai_launch_command("gemini", true),
             Some("gemini --yolo".into())
         );
         // copilot doesn't have auto-approve flag
         assert_eq!(
-            ai_launch_command("copilot", true, &[]),
+            ai_launch_command("copilot", true),
             Some("gh copilot".into())
         );
     }
 
+    // ── channels_suffix ────────────────────────────────────────────────
+
     #[test]
-    fn test_ai_launch_command_no_channels() {
-        use super::ai_launch_command;
-        let cmd = ai_launch_command("claude", false, &[]);
-        assert_eq!(cmd, Some("claude".to_string()));
+    fn test_channels_suffix_empty() {
+        use super::channels_suffix;
+        assert_eq!(channels_suffix(&[]), "");
     }
 
     #[test]
-    fn test_ai_launch_command_with_one_channel() {
-        use super::ai_launch_command;
-        let cmd = ai_launch_command("claude", false, &["plugin:telegram@claude-plugins-official".to_string()]);
-        assert_eq!(cmd, Some("claude --channels plugin:telegram@claude-plugins-official".to_string()));
+    fn test_channels_suffix_single() {
+        use super::channels_suffix;
+        let s = channels_suffix(&["plugin:telegram@claude-plugins-official".to_string()]);
+        assert_eq!(s, " --channels plugin:telegram@claude-plugins-official");
     }
 
     #[test]
-    fn test_ai_launch_command_with_channels_and_auto_approve() {
-        use super::ai_launch_command;
-        let cmd = ai_launch_command("claude", true, &["plugin:telegram@claude-plugins-official".to_string()]);
-        assert_eq!(cmd, Some("claude --dangerously-skip-permissions --channels plugin:telegram@claude-plugins-official".to_string()));
-    }
-
-    #[test]
-    fn test_ai_launch_command_multiple_channels() {
-        use super::ai_launch_command;
+    fn test_channels_suffix_multiple() {
+        use super::channels_suffix;
         let channels = vec!["plugin:telegram@foo".to_string(), "plugin:slack@bar".to_string()];
-        let cmd = ai_launch_command("claude", false, &channels);
-        assert_eq!(cmd, Some("claude --channels plugin:telegram@foo --channels plugin:slack@bar".to_string()));
+        assert_eq!(channels_suffix(&channels), " --channels plugin:telegram@foo --channels plugin:slack@bar");
     }
 
     #[test]
-    fn test_ai_launch_command_channels_ignored_for_non_claude() {
-        use super::ai_launch_command;
-        let cmd = ai_launch_command("aider", false, &["plugin:telegram@foo".to_string()]);
-        assert_eq!(cmd, Some("aider".to_string()));
-    }
-
-    #[test]
-    fn test_ai_launch_command_channel_value_passed_directly() {
-        use super::ai_launch_command;
-        let cmd = ai_launch_command("claude", false, &["plugin:test@my-plugin".to_string()]);
-        assert_eq!(cmd, Some("claude --channels plugin:test@my-plugin".to_string()));
+    fn test_full_claude_command_with_prompt_and_channels() {
+        use super::{ai_launch_command, channels_suffix};
+        // Simulate the call-site pattern: base + prompt + channels
+        let base = ai_launch_command("claude", true).unwrap();
+        let prompt = format!("{} \"Read context\"", base);
+        let channels = vec!["plugin:telegram@claude-plugins-official".to_string()];
+        let full = format!("{}{}", prompt, channels_suffix(&channels));
+        assert_eq!(full, "claude --dangerously-skip-permissions \"Read context\" --channels plugin:telegram@claude-plugins-official");
     }
 
     // ── Prompt detection after column fix ──

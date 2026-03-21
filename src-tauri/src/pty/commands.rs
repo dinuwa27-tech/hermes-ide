@@ -10,7 +10,7 @@ use crate::db::ExecutionNode;
 use crate::pty::adapters::now;
 use crate::pty::analyzer::{CommandPredictionEvent, OutputAnalyzer};
 use crate::pty::models::*;
-use crate::pty::{ai_launch_command, detect_shell, get_working_directory, PtySession};
+use crate::pty::{ai_launch_command, channels_suffix, detect_shell, get_working_directory, PtySession};
 use crate::AppState;
 
 // ─── SSH / tmux helpers ─────────────────────────────────────────────
@@ -1003,17 +1003,22 @@ pub fn create_session(
                                 {
                                     // Only launch known/allowed AI providers (reject unknown values)
                                     if let Some(launch_cmd) =
-                                        ai_launch_command(provider, auto_approve, channels)
+                                        ai_launch_command(provider, auto_approve)
                                     {
                                         // For Claude/Gemini: pass context instruction as CLI argument
                                         // so it's processed immediately without PTY injection timing issues
                                         let supports_cli_prompt =
                                             provider == "claude" || provider == "gemini";
-                                        let cmd = if has_context && supports_cli_prompt {
+                                        // Build command: base+flags, then prompt, then --channels
+                                        // (channels must come AFTER prompt so CLI doesn't treat prompt as a channel entry)
+                                        let mut cmd = if has_context && supports_cli_prompt {
                                             format!("{} \"Read the file at $HERMES_CONTEXT for project context about the attached workspaces.\"", launch_cmd)
                                         } else {
                                             launch_cmd
                                         };
+                                        if provider == "claude" && !channels.is_empty() {
+                                            cmd.push_str(&channels_suffix(channels));
+                                        }
                                         if let Ok(mut w) = writer_for_reader.lock() {
                                             let _ = w.write_all(format!("{}\r", cmd).as_bytes());
                                             let _ = w.flush();
@@ -1364,14 +1369,17 @@ pub fn create_session(
                             (s.ai_provider.clone(), s.has_initial_context, s.auto_approve, s.channels.clone())
                         });
                         if let Some((Some(ref provider), has_context, auto_approve, ref channels)) = launch_data {
-                            if let Some(launch_cmd) = ai_launch_command(provider, auto_approve, channels) {
+                            if let Some(launch_cmd) = ai_launch_command(provider, auto_approve) {
                                 let supports_cli_prompt =
                                     provider == "claude" || provider == "gemini";
-                                let cmd = if has_context && supports_cli_prompt {
+                                let mut cmd = if has_context && supports_cli_prompt {
                                     format!("{} \"Read the file at $HERMES_CONTEXT for project context about the attached workspaces.\"", launch_cmd)
                                 } else {
                                     launch_cmd
                                 };
+                                if provider == "claude" && !channels.is_empty() {
+                                    cmd.push_str(&channels_suffix(channels));
+                                }
                                 if let Ok(mut w) = writer_for_silence.lock() {
                                     let _ = w.write_all(format!("{}\r", cmd).as_bytes());
                                     let _ = w.flush();
