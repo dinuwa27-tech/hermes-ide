@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useRef, useState, useEffect } from "react";
 import { Blocks, Settings } from "lucide-react";
 import "../styles/components/ActivityBar.css";
 
@@ -20,6 +20,7 @@ interface ActivityBarProps {
   tabs: ActivityBarTab[];
   activeTabId: string | null;
   onTabClick: (tabId: string) => void;
+  onReorder?: (orderedIds: string[]) => void;
   topAction?: ActivityBarAction;
   pinnedTabs?: ActivityBarTab[];
   bottomActions?: ActivityBarAction[];
@@ -27,8 +28,110 @@ interface ActivityBarProps {
   bottomAction?: ActivityBarAction;
 }
 
-export function ActivityBar({ side, tabs, activeTabId, onTabClick, topAction, pinnedTabs, bottomActions, bottomAction }: ActivityBarProps) {
+export function ActivityBar({ side, tabs, activeTabId, onTabClick, onReorder, topAction, pinnedTabs, bottomActions, bottomAction }: ActivityBarProps) {
   const resolvedBottomActions = bottomActions ?? (bottomAction ? [bottomAction] : []);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const mouseDownPos = useRef<{ x: number; y: number } | null>(null);
+  const dragging = useRef(false);
+  const dropIndexRef = useRef<number | null>(null);
+
+  // Clean up drag state on unmount
+  useEffect(() => {
+    return () => {
+      document.querySelector(".activity-bar-ghost")?.remove();
+    };
+  }, []);
+
+  const handleMouseDown = (e: React.MouseEvent, tabId: string) => {
+    if (!onReorder || tabs.length < 2) return;
+    e.preventDefault();
+    mouseDownPos.current = { x: e.clientX, y: e.clientY };
+    dragging.current = false;
+
+    const tabEl = (e.currentTarget as HTMLElement);
+
+    const onMouseMove = (me: MouseEvent) => {
+      if (!mouseDownPos.current) return;
+      const dy = Math.abs(me.clientY - mouseDownPos.current.y);
+      const dx = Math.abs(me.clientX - mouseDownPos.current.x);
+
+      if (!dragging.current && dy + dx > 5) {
+        dragging.current = true;
+        setDragId(tabId);
+
+        // Create ghost
+        const rect = tabEl.getBoundingClientRect();
+        const ghost = document.createElement("div");
+        ghost.className = "activity-bar-ghost";
+        ghost.style.cssText = `
+          position: fixed; z-index: 9999; pointer-events: none;
+          width: ${rect.width}px; height: ${rect.height}px;
+          background: var(--bg-hover); border: 1px solid var(--accent);
+          border-radius: var(--radius); opacity: 0.9;
+          display: flex; align-items: center; justify-content: center;
+          color: var(--accent);
+        `;
+        ghost.innerHTML = tabEl.querySelector(".activity-bar-icon-wrap")?.innerHTML ?? "";
+        document.body.appendChild(ghost);
+      }
+
+      if (dragging.current) {
+        const ghost = document.querySelector(".activity-bar-ghost") as HTMLElement;
+        if (ghost) {
+          ghost.style.left = `${me.clientX - 16}px`;
+          ghost.style.top = `${me.clientY - 16}px`;
+        }
+
+        // Calculate drop index from mouse Y position
+        if (tabsRef.current) {
+          const tabEls = tabsRef.current.querySelectorAll("[data-tab-id]");
+          let idx = tabs.length;
+          for (let i = 0; i < tabEls.length; i++) {
+            const r = tabEls[i].getBoundingClientRect();
+            if (me.clientY < r.top + r.height / 2) {
+              idx = i;
+              break;
+            }
+          }
+          setDropIndex(idx);
+          dropIndexRef.current = idx;
+        }
+      }
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+      document.querySelector(".activity-bar-ghost")?.remove();
+
+      const di = dropIndexRef.current;
+      if (dragging.current && di !== null) {
+        // Build new order
+        const currentIdx = tabs.findIndex(t => t.id === tabId);
+        if (currentIdx !== -1 && di !== currentIdx && di !== currentIdx + 1) {
+          const ids = tabs.map(t => t.id);
+          const [moved] = ids.splice(currentIdx, 1);
+          const insertAt = di > currentIdx ? di - 1 : di;
+          ids.splice(insertAt, 0, moved);
+          onReorder(ids);
+        }
+      } else if (!dragging.current) {
+        // Was a click, not a drag
+        onTabClick(tabId);
+      }
+
+      setDragId(null);
+      setDropIndex(null);
+      dropIndexRef.current = null;
+      mouseDownPos.current = null;
+      dragging.current = false;
+    };
+
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  };
 
   return (
     <div className={`activity-bar activity-bar-${side}`}>
@@ -59,21 +162,32 @@ export function ActivityBar({ side, tabs, activeTabId, onTabClick, topAction, pi
       {(topAction || (pinnedTabs && pinnedTabs.length > 0)) && (
         <div className="activity-bar-separator" />
       )}
-      {tabs.map((tab) => (
-        <button
-          key={tab.id}
-          className={`activity-bar-tab activity-bar-expandable activity-bar-expand-${side}${activeTabId === tab.id ? " activity-bar-tab-active" : ""}`}
-          onClick={() => onTabClick(tab.id)}
-        >
-          <span className="activity-bar-icon-wrap">
-            {tab.icon}
-            {tab.badge != null && tab.badge > 0 && (
-              <span className="activity-bar-badge">{tab.badge}</span>
+      <div ref={tabsRef} className="activity-bar-tabs-reorderable">
+        {tabs.map((tab, i) => (
+          <div key={tab.id} className="activity-bar-tab-slot">
+            {dragId && dropIndex === i && (
+              <div className="activity-bar-drop-indicator" />
             )}
-          </span>
-          <span className="activity-bar-label">{tab.label}</span>
-        </button>
-      ))}
+            <button
+              data-tab-id={tab.id}
+              className={`activity-bar-tab activity-bar-expandable activity-bar-expand-${side}${activeTabId === tab.id ? " activity-bar-tab-active" : ""}${dragId === tab.id ? " activity-bar-tab-dragging" : ""}`}
+              onMouseDown={(e) => handleMouseDown(e, tab.id)}
+              onClick={onReorder ? undefined : () => onTabClick(tab.id)}
+            >
+              <span className="activity-bar-icon-wrap">
+                {tab.icon}
+                {tab.badge != null && tab.badge > 0 && (
+                  <span className="activity-bar-badge">{tab.badge}</span>
+                )}
+              </span>
+              <span className="activity-bar-label">{tab.label}</span>
+            </button>
+          </div>
+        ))}
+        {dragId && dropIndex === tabs.length && (
+          <div className="activity-bar-drop-indicator" />
+        )}
+      </div>
       {resolvedBottomActions.length > 0 && (
         <>
           <div className="activity-bar-bottom-spacer" />

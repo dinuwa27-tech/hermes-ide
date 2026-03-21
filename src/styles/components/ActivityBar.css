@@ -191,6 +191,42 @@
   margin: var(--space-1) 0;
 }
 
+/* ─── Drag-and-drop reorder ──────────────────────────────── */
+
+.activity-bar-tabs-reorderable {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  overflow: visible;
+  width: 100%;
+}
+
+.activity-bar-tab-slot {
+  overflow: visible;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.activity-bar-tab-dragging {
+  opacity: 0.3;
+}
+
+.activity-bar-drop-indicator {
+  height: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+  margin: 1px 8px;
+  align-self: stretch;
+}
+
+.activity-bar-ghost svg {
+  width: var(--icon-size);
+  height: var(--icon-size);
+}
+
 /* ─── Bottom spacer (pushes bottom action to end) ────────── */
 
 .activity-bar-bottom-spacer {

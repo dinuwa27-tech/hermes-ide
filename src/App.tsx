@@ -94,6 +94,13 @@ function AppContent() {
       .catch(() => {});
   }, [settingsOpen]);
 
+  // Load activity bar tab order
+  useEffect(() => {
+    getSetting("activity_bar_order")
+      .then((v) => { if (v) { try { setActivityBarOrder(JSON.parse(v)); } catch {} } })
+      .catch(() => {});
+  }, []);
+
   // Keep a ref to state so plugin callbacks always read fresh values
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -102,6 +109,7 @@ function AppContent() {
   const [activePluginPanel, setActivePluginPanel] = useState<string | null>(null);
   const [activeBottomPanel, setActiveBottomPanel] = useState<string | null>(null);
   const [bottomPanelHeight, setBottomPanelHeight] = useState(300);
+  const [activityBarOrder, setActivityBarOrder] = useState<string[]>([]);
   const [leftPanelWidth, setLeftPanelWidth] = useState(240);
   const [rightPanelWidth, setRightPanelWidth] = useState(300);
   const toastStore = useToastStore();
@@ -617,15 +625,26 @@ function AppContent() {
             pinnedTabs={[
               { id: "sessions", label: `Sessions (${fmt("{mod}B")})`, icon: SessionsIcon, badge: sessions.length || undefined },
             ]}
-            tabs={[
-              ...pluginPanels
+            tabs={(() => {
+              const filtered = pluginPanels
                 .filter(p => (p.side === "left" || p.side === "bottom") && !pluginSessionActions.some(a => a.panelId === p.id))
                 .map(p => ({
                   id: p.id,
                   label: p.name,
                   icon: <span dangerouslySetInnerHTML={{ __html: p.icon }} />,
-                })),
-            ]}
+                }));
+              if (activityBarOrder.length === 0) return filtered;
+              const orderMap = new Map(activityBarOrder.map((id, i) => [id, i]));
+              return [...filtered].sort((a, b) => {
+                const ai = orderMap.get(a.id) ?? 9999;
+                const bi = orderMap.get(b.id) ?? 9999;
+                return ai - bi;
+              });
+            })()}
+            onReorder={(ids) => {
+              setActivityBarOrder(ids);
+              setSetting("activity_bar_order", JSON.stringify(ids)).catch(() => {});
+            }}
             activeTabId={activePluginPanel ?? activeBottomPanel ?? (!ui.sessionListCollapsed ? "sessions" : null)}
             onTabClick={(tabId) => {
               if (tabId === "sessions") {
