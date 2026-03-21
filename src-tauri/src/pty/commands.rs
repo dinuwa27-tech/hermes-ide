@@ -1453,6 +1453,8 @@ pub fn create_session(
             for proj_id in ids {
                 db.attach_session_project(&session_id, proj_id, "primary")
                     .ok();
+                // Track project usage for smart ordering
+                db.upsert_project_usage(proj_id).ok();
             }
             // Write context file so AI agents can read project info
             // (only for local sessions — the file isn't accessible over SSH)

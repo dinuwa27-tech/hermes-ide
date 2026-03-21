@@ -2,9 +2,9 @@ import "../styles/components/SessionCreator.css";
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useResizablePanel } from "../hooks/useResizablePanel";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Project } from "../hooks/useSessionProjects";
 import { CreateSessionOpts } from "../state/SessionContext";
-import { getProjects, createProject, deleteProject } from "../api/projects";
+import { getProjectsOrdered, createProject, deleteProject } from "../api/projects";
+import type { ProjectOrdered } from "../types/project";
 import { getSessions, sshListTmuxSessions } from "../api/sessions";
 import { getSetting, setSetting } from "../api/settings";
 import { listSshSavedHosts, upsertSshSavedHost, type SshSavedHost } from "../api/ssh";
@@ -81,7 +81,7 @@ export function SessionCreator({ onClose, onCreate, defaultGroup }: SessionCreat
   const [aiProvider, setAiProvider] = useState<string | null>(null);
   const [label, setLabel] = useState("");
   const [description, setDescription] = useState("");
-  const [allProjects, setAllProjects] = useState<Project[]>([]);
+  const [allProjects, setAllProjects] = useState<ProjectOrdered[]>([]);
   const [query, setQuery] = useState("");
   const [scanPath, setScanPath] = useState("");
   const [scanning, setScanning] = useState(false);
@@ -225,7 +225,7 @@ export function SessionCreator({ onClose, onCreate, defaultGroup }: SessionCreat
   }, [step, orderedSteps]);
 
   useEffect(() => {
-    getProjects()
+    getProjectsOrdered()
       .then((r) => setAllProjects(r))
       .catch((err) => console.warn("[SessionCreator] Failed to load projects:", err));
     getSetting(SSH_HISTORY_KEY)
@@ -392,7 +392,8 @@ export function SessionCreator({ onClose, onCreate, defaultGroup }: SessionCreat
     setScanning(true);
     try {
       const project = await createProject(path.trim(), null);
-      setAllProjects((prev) => [project, ...prev.filter((r) => r.id !== project.id)]);
+      const ordered: ProjectOrdered = { ...project, session_count: 0, last_opened_at: null, path_exists: true };
+      setAllProjects((prev) => [ordered, ...prev.filter((r) => r.id !== project.id)]);
       setSelectedProjectIds((prev) =>
         prev.includes(project.id) ? prev : (isShellOnly ? [project.id] : [...prev, project.id])
       );
@@ -725,13 +726,18 @@ export function SessionCreator({ onClose, onCreate, defaultGroup }: SessionCreat
               {filtered.map((project, idx) => (
                 <div
                   key={project.id}
-                  className={`project-picker-item ${selectedProjectIds.includes(project.id) ? "project-picker-item-attached" : ""} ${highlightedIndex === idx ? "session-creator-highlighted" : ""}`}
-                  onClick={() => toggleProject(project.id)}
+                  className={`project-picker-item ${selectedProjectIds.includes(project.id) ? "project-picker-item-attached" : ""} ${highlightedIndex === idx ? "session-creator-highlighted" : ""} ${"path_exists" in project && !project.path_exists ? "project-picker-item-missing" : ""}`}
+                  onClick={() => {
+                    if ("path_exists" in project && !project.path_exists) return;
+                    toggleProject(project.id);
+                  }}
                 >
                   <span className="project-picker-check">
-                    {isShellOnly
-                      ? (selectedProjectIds.includes(project.id) ? "(*)" : "( )")
-                      : (selectedProjectIds.includes(project.id) ? "[x]" : "[ ]")}
+                    {"path_exists" in project && !project.path_exists
+                      ? "(!)"
+                      : isShellOnly
+                        ? (selectedProjectIds.includes(project.id) ? "(*)" : "( )")
+                        : (selectedProjectIds.includes(project.id) ? "[x]" : "[ ]")}
                   </span>
                   <div className="project-picker-info">
                     <div className="project-picker-name">
@@ -741,6 +747,9 @@ export function SessionCreator({ onClose, onCreate, defaultGroup }: SessionCreat
                       )}
                     </div>
                     <div className="project-picker-path">{shortPath(project.path)}</div>
+                    {"path_exists" in project && !project.path_exists && (
+                      <div className="project-picker-missing-label">Folder not found</div>
+                    )}
                     {(project.languages.length > 0 || project.frameworks.length > 0) && (
                       <div className="project-picker-tags">
                         {project.languages.map((lang) => (

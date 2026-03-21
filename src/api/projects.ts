@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Project } from "../types/project";
+import type { Project, ProjectOrdered } from "../types/project";
 import type { ProjectContextInfo } from "../types/context";
 
 export function getProjects(): Promise<Project[]> {
@@ -19,6 +19,12 @@ export function createProject(path: string, name: string | null): Promise<Projec
 
 export function deleteProject(id: string): Promise<void> {
   return invoke("delete_project", { id });
+}
+
+export function getProjectsOrdered(): Promise<ProjectOrdered[]> {
+  return invoke<ProjectOrdered[]>("get_projects_ordered").then((projects) =>
+    projects.filter((p) => !isWorktreePath(p.path))
+  );
 }
 
 export function getSessionProjects(sessionId: string): Promise<Project[]> {

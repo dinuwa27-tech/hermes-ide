@@ -38,6 +38,24 @@ pub struct Project {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectOrdered {
+    pub id: String,
+    pub path: String,
+    pub name: String,
+    pub languages: Vec<String>,
+    pub frameworks: Vec<String>,
+    pub architecture: Option<ArchitectureInfo>,
+    pub conventions: Vec<Convention>,
+    pub scan_status: String,
+    pub last_scanned_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub session_count: i64,
+    pub last_opened_at: Option<String>,
+    pub path_exists: bool,
+}
+
 // ─── IPC Commands ────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -159,6 +177,22 @@ pub fn create_project(
 pub fn get_registered_projects(state: State<'_, AppState>) -> Result<Vec<Project>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.get_all_projects()
+}
+
+#[tauri::command]
+pub fn get_projects_ordered(state: State<'_, AppState>) -> Result<Vec<ProjectOrdered>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let mut projects = db.get_all_projects_ordered()?;
+
+    // Check which paths exist on disk
+    for project in &mut projects {
+        project.path_exists = std::path::Path::new(&project.path).is_dir();
+    }
+
+    // Stable sort: existing folders first (preserving score order), missing folders last
+    projects.sort_by(|a, b| b.path_exists.cmp(&a.path_exists));
+
+    Ok(projects)
 }
 
 #[tauri::command]

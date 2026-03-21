@@ -574,6 +574,7 @@ pub fn run() {
             // Projects
             project::create_project,
             project::get_registered_projects,
+            project::get_projects_ordered,
             project::get_project,
             project::delete_project,
             project::attach_session_project,

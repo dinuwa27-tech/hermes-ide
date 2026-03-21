@@ -508,7 +508,80 @@ impl Database {
                 })?;
         }
 
+        // Project usage tracking table (idempotent)
+        let _ = self.conn.execute_batch(
+            "
+            CREATE TABLE IF NOT EXISTS project_usage (
+                project_id TEXT PRIMARY KEY,
+                session_count INTEGER NOT NULL DEFAULT 0,
+                last_opened_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+        ",
+        );
+
         Ok(())
+    }
+
+    // ─── Project Usage ──────────────────────────────────────────
+
+    pub fn upsert_project_usage(&self, project_id: &str) -> Result<(), String> {
+        self.conn
+            .execute(
+                "INSERT INTO project_usage (project_id, session_count, last_opened_at)
+                 VALUES (?1, 1, datetime('now'))
+                 ON CONFLICT(project_id) DO UPDATE SET
+                    session_count = session_count + 1,
+                    last_opened_at = datetime('now')",
+                params![project_id],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn get_all_projects_ordered(&self) -> Result<Vec<crate::project::ProjectOrdered>, String> {
+        let mut stmt = self.conn.prepare(
+            "SELECT r.id, r.path, r.name, r.languages, r.frameworks, r.architecture, r.conventions,
+                    r.scan_status, r.last_scanned_at, r.created_at, r.updated_at,
+                    COALESCE(pu.session_count, 0) AS session_count,
+                    pu.last_opened_at
+             FROM realms r
+             LEFT JOIN project_usage pu ON pu.project_id = r.id
+             ORDER BY
+                COALESCE(pu.session_count, 0) DESC,
+                pu.last_opened_at DESC NULLS LAST,
+                r.name COLLATE NOCASE ASC"
+        ).map_err(|e| e.to_string())?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                let languages_str: String = row.get(3)?;
+                let frameworks_str: String = row.get(4)?;
+                let architecture_str: Option<String> = row.get(5)?;
+                let conventions_str: String = row.get(6)?;
+                Ok(crate::project::ProjectOrdered {
+                    id: row.get(0)?,
+                    path: row.get(1)?,
+                    name: row.get(2)?,
+                    languages: serde_json::from_str(&languages_str).unwrap_or_default(),
+                    frameworks: serde_json::from_str(&frameworks_str).unwrap_or_default(),
+                    architecture: architecture_str.and_then(|s| serde_json::from_str(&s).ok()),
+                    conventions: serde_json::from_str(&conventions_str).unwrap_or_default(),
+                    scan_status: row.get(7)?,
+                    last_scanned_at: row.get(8)?,
+                    created_at: row.get(9)?,
+                    updated_at: row.get(10)?,
+                    session_count: row.get(11)?,
+                    last_opened_at: row.get(12)?,
+                    path_exists: false, // filled in by the command handler
+                })
+            })
+            .map_err(|e| e.to_string())?;
+
+        let mut entries = Vec::new();
+        for row in rows {
+            entries.push(row.map_err(|e| e.to_string())?);
+        }
+        Ok(entries)
     }
 
     // ─── Session Operations ─────────────────────────────────────
@@ -1634,6 +1707,12 @@ impl Database {
             self.conn
                 .execute(
                     "DELETE FROM realm_conventions WHERE realm_id = ?1",
+                    params![id],
+                )
+                .map_err(|e| e.to_string())?;
+            self.conn
+                .execute(
+                    "DELETE FROM project_usage WHERE project_id = ?1",
                     params![id],
                 )
                 .map_err(|e| e.to_string())?;

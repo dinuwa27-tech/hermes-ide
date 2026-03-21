@@ -212,3 +212,30 @@
   color: var(--red);
   border-color: var(--red);
 }
+
+/* ─── Missing Folder Indicator ───────────────────────────── */
+
+.project-picker-item-missing {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.project-picker-item-missing .project-picker-check {
+  color: var(--red);
+}
+
+.project-picker-item-missing .project-picker-name {
+  color: var(--red);
+}
+
+.project-picker-item-missing .project-picker-path {
+  color: var(--red);
+  opacity: 0.8;
+}
+
+.project-picker-missing-label {
+  font-size: var(--text-sm);
+  color: var(--red);
+  font-weight: 500;
+  margin-top: 2px;
+}

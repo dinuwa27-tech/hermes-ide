@@ -1,8 +1,9 @@
 import "../styles/components/ProjectPicker.css";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Project, useSessionProjects } from "../hooks/useSessionProjects";
-import { getProjects, createProject, deleteProject, nudgeProjectContext } from "../api/projects";
+import { useSessionProjects } from "../hooks/useSessionProjects";
+import { getProjectsOrdered, createProject, deleteProject, nudgeProjectContext } from "../api/projects";
+import type { ProjectOrdered } from "../types/project";
 import { LANG_COLORS } from "../utils/langColors";
 
 interface ProjectPickerProps {
@@ -12,7 +13,7 @@ interface ProjectPickerProps {
 
 export function ProjectPicker({ sessionId, onClose }: ProjectPickerProps) {
   const { projects: attachedProjects, attach, detach } = useSessionProjects(sessionId);
-  const [allProjects, setAllProjects] = useState<Project[]>([]);
+  const [allProjects, setAllProjects] = useState<ProjectOrdered[]>([]);
   const [query, setQuery] = useState("");
   const [scanPath, setScanPath] = useState("");
   const [scanning, setScanning] = useState(false);
@@ -20,7 +21,7 @@ export function ProjectPicker({ sessionId, onClose }: ProjectPickerProps) {
   const changed = useRef(false);
 
   useEffect(() => {
-    getProjects()
+    getProjectsOrdered()
       .then((r) => setAllProjects(r))
       .catch((err) => console.warn("[ProjectPicker] Failed to load projects:", err));
     inputRef.current?.focus();
@@ -52,7 +53,7 @@ export function ProjectPicker({ sessionId, onClose }: ProjectPickerProps) {
     );
   }, [query, allProjects]);
 
-  const toggleProject = async (project: Project) => {
+  const toggleProject = async (project: ProjectOrdered) => {
     if (attachedIds.has(project.id)) {
       await detach(project.id);
     } else {
@@ -60,7 +61,7 @@ export function ProjectPicker({ sessionId, onClose }: ProjectPickerProps) {
     }
     changed.current = true;
     // Refresh all projects in case of updates
-    getProjects()
+    getProjectsOrdered()
       .then((r) => {
         setAllProjects(r);
         inputRef.current?.focus();
@@ -86,7 +87,8 @@ export function ProjectPicker({ sessionId, onClose }: ProjectPickerProps) {
         }
       } else {
         const project = await createProject(normalized, null);
-        setAllProjects((prev) => [project, ...prev.filter((r) => r.id !== project.id)]);
+        const ordered: ProjectOrdered = { ...project, session_count: 0, last_opened_at: null, path_exists: true };
+        setAllProjects((prev) => [ordered, ...prev.filter((r) => r.id !== project.id)]);
         await attach(project.id);
         changed.current = true;
       }
@@ -162,11 +164,16 @@ export function ProjectPicker({ sessionId, onClose }: ProjectPickerProps) {
           {filtered.map((project) => (
             <div
               key={project.id}
-              className={`project-picker-item ${attachedIds.has(project.id) ? "project-picker-item-attached" : ""}`}
-              onClick={() => toggleProject(project)}
+              className={`project-picker-item ${attachedIds.has(project.id) ? "project-picker-item-attached" : ""} ${"path_exists" in project && !project.path_exists ? "project-picker-item-missing" : ""}`}
+              onClick={() => {
+                if ("path_exists" in project && !project.path_exists) return;
+                toggleProject(project);
+              }}
             >
               <span className="project-picker-check">
-                {attachedIds.has(project.id) ? "[x]" : "[ ]"}
+                {"path_exists" in project && !project.path_exists
+                  ? "(!)"
+                  : attachedIds.has(project.id) ? "[x]" : "[ ]"}
               </span>
               <div className="project-picker-info">
                 <div className="project-picker-name">
@@ -176,6 +183,9 @@ export function ProjectPicker({ sessionId, onClose }: ProjectPickerProps) {
                   </span>
                 </div>
                 <div className="project-picker-path">{shortPath(project.path)}</div>
+                {"path_exists" in project && !project.path_exists && (
+                  <div className="project-picker-missing-label">Folder not found</div>
+                )}
                 <div className="project-picker-tags">
                   {project.languages.map((lang) => (
                     <span
