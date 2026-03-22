@@ -55,6 +55,13 @@ export function Settings({ onClose, initialTab, pluginRuntime, onConfirmPluginUp
   const [activeTab, setActiveTab] = useState(initialTab || "general");
   const [sshHosts, setSshHosts] = useState<SshSavedHost[]>([]);
   const [editingHost, setEditingHost] = useState<SshSavedHost | null>(null);
+  const [footerStatus, setFooterStatusRaw] = useState<string | null>(null);
+  const footerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const setFooterStatus = useCallback((msg: string) => {
+    if (footerTimer.current) clearTimeout(footerTimer.current);
+    setFooterStatusRaw(msg);
+    footerTimer.current = setTimeout(() => setFooterStatusRaw(null), 4000);
+  }, []);
   const { dispatch } = useSession();
   const { onContextMenu: textContextMenu } = useTextContextMenu();
 
@@ -116,6 +123,7 @@ export function Settings({ onClose, initialTab, pluginRuntime, onConfirmPluginUp
     return () => {
       resizeUnlisten.current?.();
       if (applyTimer.current) clearTimeout(applyTimer.current);
+      if (footerTimer.current) clearTimeout(footerTimer.current);
     };
   }, []);
 
@@ -821,7 +829,12 @@ export function Settings({ onClose, initialTab, pluginRuntime, onConfirmPluginUp
                 filters: [{ name: "JSON", extensions: ["json"] }],
               });
               if (path) {
-                exportSettings(path).catch(console.error);
+                try {
+                  await exportSettings(path);
+                  setFooterStatus("Settings exported");
+                } catch (e) {
+                  setFooterStatus(`Export failed: ${e}`);
+                }
               }
             }}
           >
@@ -838,15 +851,29 @@ export function Settings({ onClose, initialTab, pluginRuntime, onConfirmPluginUp
                 try {
                   const newSettings = await importSettings(path);
                   setSettings(newSettings);
+                  // Apply theme + UI scale
                   applyTheme(newSettings.theme || "dark", newSettings);
+                  // Sync analytics state
+                  setAnalyticsEnabled(newSettings.telemetry_enabled === "true");
+                  // Sync autonomous settings to live state
+                  for (const [settingKey, stateKey] of Object.entries(AUTONOMOUS_KEYS)) {
+                    if (newSettings[settingKey]) {
+                      dispatch({
+                        type: "SET_AUTONOMOUS_SETTINGS",
+                        settings: { [stateKey]: parseInt(newSettings[settingKey], 10) || 0 },
+                      });
+                    }
+                  }
+                  setFooterStatus("Settings imported");
                 } catch (e) {
-                  console.error(e);
+                  setFooterStatus(`Import failed: ${e}`);
                 }
               }
             }}
           >
             Import Settings
           </button>
+          {footerStatus && <span className="settings-footer-status">{footerStatus}</span>}
         </div>
       </div>
     </div>

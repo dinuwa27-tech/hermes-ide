@@ -2990,6 +2990,8 @@ const EXPORT_EXCLUDED_KEYS: &[&str] = &[
     "session_creator_panel_height",
     // Workspace layout — contains absolute paths
     "saved_workspace",
+    // Default CWD — absolute path, won't exist on another machine
+    "default_cwd",
     // Onboarding / What's New — per-install lifecycle
     "onboarding_completed",
     "last_seen_version",
@@ -3084,7 +3086,17 @@ pub fn import_settings(
         std::fs::read_to_string(&validated).map_err(|e| format!("Failed to read file: {}", e))?;
     let imported: HashMap<String, String> =
         serde_json::from_str(&content).map_err(|e| format!("Invalid settings JSON: {}", e))?;
+
+    // Validate this looks like a Hermes settings file (at least one valid key)
+    let has_valid_key = imported.keys().any(|k| {
+        k.starts_with("_hermes_") || VALID_SETTING_KEYS.contains(&k.as_str())
+    });
+    if !has_valid_key {
+        return Err("This file does not appear to be a Hermes settings export".to_string());
+    }
+
     let db = state.db.lock().map_err(|e| e.to_string())?;
+    let mut applied = 0u32;
     for (key, value) in &imported {
         // Skip metadata keys (prefixed with _hermes_)
         if key.starts_with("_hermes_") {
@@ -3094,7 +3106,9 @@ pub fn import_settings(
             continue; // Skip unknown keys silently during import
         }
         db.set_setting(key, value)?;
+        applied += 1;
     }
+    log::info!("Imported {} settings from {}", applied, validated.display());
     db.get_all_settings()
 }
 
