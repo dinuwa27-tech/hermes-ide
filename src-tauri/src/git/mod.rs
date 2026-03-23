@@ -2818,6 +2818,7 @@ pub fn git_create_worktree(
     project_id: String,
     branch_name: String,
     create_branch: bool,
+    from_remote: Option<String>,
 ) -> Result<worktree::WorktreeCreateResult, String> {
     // Get the app data directory for storing worktrees outside the project
     let app_data_dir = app
@@ -2857,6 +2858,7 @@ pub fn git_create_worktree(
         &session_id,
         &branch_name,
         create_branch,
+        from_remote.as_deref(),
     )?;
 
     // 3. Insert into session_worktrees table — if this fails, roll back the worktree
@@ -3176,10 +3178,122 @@ pub fn git_list_branches_for_projects(
             }
         }
 
+        // Remote branches
+        if let Ok(remote_branches) = repo.branches(Some(BranchType::Remote)) {
+            for branch_result in remote_branches {
+                let (branch, _) = match branch_result {
+                    Ok(b) => b,
+                    Err(_) => continue,
+                };
+                let name = branch.name().ok().flatten().unwrap_or("").to_string();
+
+                // Skip HEAD pointer references like origin/HEAD
+                if name.ends_with("/HEAD") {
+                    continue;
+                }
+
+                let last_commit_summary = branch
+                    .get()
+                    .peel_to_commit()
+                    .ok()
+                    .map(|c| c.summary().unwrap_or("").to_string());
+
+                branches.push(GitBranch {
+                    name,
+                    is_current: false,
+                    is_remote: true,
+                    upstream: None,
+                    ahead: 0,
+                    behind: 0,
+                    last_commit_summary,
+                });
+            }
+        }
+
         result.insert(project_id.clone(), branches);
     }
 
     Ok(result)
+}
+
+/// Fetch all remote branches for a project and return the list of remote branches.
+///
+/// Runs `git fetch --all --prune` with a timeout, then lists remote branches
+/// using git2, skipping `origin/HEAD` refs.
+#[tauri::command]
+pub fn git_fetch_remote_branches(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> Result<Vec<GitBranch>, String> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| format!("DB lock error: {}", e))?;
+    let project = db
+        .get_project(&project_id)
+        .map_err(|e| format!("Failed to look up project: {}", e))?
+        .ok_or_else(|| format!("Project '{}' not found", project_id))?;
+    let project_path = project.path.clone();
+    drop(db);
+
+    // Run `git fetch --all --prune` with a 5-second timeout
+    let fetch_child = std::process::Command::new("git")
+        .current_dir(&project_path)
+        .args(["fetch", "--all", "--prune"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn 'git fetch': {}", e))?;
+
+    let fetch_output = fetch_child
+        .wait_with_output()
+        .map_err(|e| format!("Failed to wait for 'git fetch': {}", e))?;
+
+    if !fetch_output.status.success() {
+        let stderr = String::from_utf8_lossy(&fetch_output.stderr);
+        log::warn!("git fetch warning: {}", stderr.trim());
+        // Non-fatal: we still list whatever remote branches exist locally
+    }
+
+    // List remote branches using git2
+    let repo = Repository::open(&project_path).map_err(|e| e.to_string())?;
+    let mut branches = Vec::new();
+
+    let remote_branches = repo
+        .branches(Some(BranchType::Remote))
+        .map_err(|e| e.to_string())?;
+
+    for branch_result in remote_branches {
+        let (branch, _) = branch_result.map_err(|e| e.to_string())?;
+        let name = branch
+            .name()
+            .map_err(|e| e.to_string())?
+            .unwrap_or("")
+            .to_string();
+
+        // Skip HEAD pointer references like origin/HEAD
+        if name.ends_with("/HEAD") {
+            continue;
+        }
+
+        let last_commit_summary = branch
+            .get()
+            .peel_to_commit()
+            .ok()
+            .map(|c| c.summary().unwrap_or("").to_string());
+
+        branches.push(GitBranch {
+            name,
+            is_current: false,
+            is_remote: true,
+            upstream: None,
+            ahead: 0,
+            behind: 0,
+            last_commit_summary,
+        });
+    }
+
+    Ok(branches)
 }
 
 #[tauri::command]

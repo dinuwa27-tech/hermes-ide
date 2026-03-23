@@ -155,6 +155,17 @@ fn find_existing_worktree_for_branch(repo_path: &str, branch_name: &str) -> Opti
     None
 }
 
+/// Derive the local branch name from a remote ref by stripping the remote
+/// prefix. For example, `"origin/feature-xyz"` becomes `"feature-xyz"`.
+fn derive_local_branch_name(remote_ref: &str) -> String {
+    // Strip the first path component (e.g. "origin/")
+    if let Some(pos) = remote_ref.find('/') {
+        remote_ref[pos + 1..].to_string()
+    } else {
+        remote_ref.to_string()
+    }
+}
+
 /// Create a new git worktree for a session.
 ///
 /// Worktrees are stored outside the project directory in the app data dir
@@ -162,6 +173,12 @@ fn find_existing_worktree_for_branch(repo_path: &str, branch_name: &str) -> Opti
 ///
 /// If `create_branch` is true, a new branch is created from HEAD before
 /// adding the worktree. If false, the branch must already exist.
+///
+/// If `from_remote` is `Some(remote_ref)` (e.g. `"origin/feature-xyz"`),
+/// the worktree is created from the remote branch. A local tracking branch
+/// is created automatically. If a local branch with the derived name
+/// already exists, it must point to the same commit as the remote ref;
+/// otherwise an error is returned.
 ///
 /// Uses `git worktree add` via the CLI because git2-rs does not expose a
 /// reliable worktree-creation API.
@@ -171,10 +188,133 @@ pub fn create_worktree(
     session_id: &str,
     branch_name: &str,
     create_branch: bool,
+    from_remote: Option<&str>,
 ) -> Result<WorktreeCreateResult, String> {
     // Validate that we can open the repository
     let repo = Repository::open(repo_path)
         .map_err(|e| format!("Failed to open repository at '{}': {}", repo_path, e))?;
+
+    // When creating from a remote branch, derive the local name and use it
+    // for the worktree path and branch name.
+    if let Some(remote_ref) = from_remote {
+        let local_name = derive_local_branch_name(remote_ref);
+
+        let wt_path =
+            worktree_path_for_session(app_data_dir, repo_path, session_id, &local_name);
+        let wt_path_str = wt_path
+            .to_str()
+            .ok_or_else(|| "Worktree path contains invalid UTF-8".to_string())?;
+
+        // If the worktree directory already exists, return it directly
+        if wt_path.exists() {
+            return Ok(WorktreeCreateResult {
+                worktree_path: wt_path_str.to_string(),
+                branch_name: local_name,
+                is_main_worktree: false,
+                is_shared: false,
+            });
+        }
+
+        // Check if a local branch with the derived name already exists
+        if let Ok(local_branch) = repo.find_branch(&local_name, BranchType::Local) {
+            // Local branch exists — verify it points to the same commit as the remote
+            let remote_branch = repo
+                .find_branch(remote_ref, BranchType::Remote)
+                .map_err(|e| {
+                    format!(
+                        "Remote branch '{}' not found: {}",
+                        remote_ref, e
+                    )
+                })?;
+
+            let local_oid = local_branch
+                .get()
+                .peel_to_commit()
+                .map_err(|e| format!("Failed to resolve local branch commit: {}", e))?
+                .id();
+            let remote_oid = remote_branch
+                .get()
+                .peel_to_commit()
+                .map_err(|e| format!("Failed to resolve remote branch commit: {}", e))?
+                .id();
+
+            if local_oid != remote_oid {
+                return Err(format!(
+                    "Local branch '{}' exists but points to a different commit than '{}'. \
+                     Please resolve the conflict manually before creating a worktree.",
+                    local_name, remote_ref
+                ));
+            }
+
+            // Same commit — use the existing local branch directly
+            let mut cmd = Command::new("git");
+            cmd.current_dir(repo_path);
+            cmd.args(["worktree", "add", wt_path_str, &local_name]);
+
+            let output = cmd
+                .output()
+                .map_err(|e| format!("Failed to run 'git worktree add': {}", e))?;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+
+                if stderr.contains("is already used by worktree at")
+                    || stderr.contains("is already checked out at")
+                {
+                    if let Some(existing_path) =
+                        find_existing_worktree_for_branch(repo_path, &local_name)
+                    {
+                        return Ok(WorktreeCreateResult {
+                            worktree_path: existing_path,
+                            branch_name: local_name,
+                            is_main_worktree: false,
+                            is_shared: true,
+                        });
+                    }
+                }
+
+                return Err(format!("git worktree add failed: {}", stderr.trim()));
+            }
+
+            return Ok(WorktreeCreateResult {
+                worktree_path: wt_path_str.to_string(),
+                branch_name: local_name,
+                is_main_worktree: false,
+                is_shared: false,
+            });
+        }
+
+        // No local branch exists — create one tracking the remote ref
+        // `git worktree add -b <local_name> <path> <remote_ref>`
+        let mut cmd = Command::new("git");
+        cmd.current_dir(repo_path);
+        cmd.args([
+            "worktree",
+            "add",
+            "-b",
+            &local_name,
+            wt_path_str,
+            remote_ref,
+        ]);
+
+        let output = cmd
+            .output()
+            .map_err(|e| format!("Failed to run 'git worktree add': {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("git worktree add failed: {}", stderr.trim()));
+        }
+
+        return Ok(WorktreeCreateResult {
+            worktree_path: wt_path_str.to_string(),
+            branch_name: local_name,
+            is_main_worktree: false,
+            is_shared: false,
+        });
+    }
+
+    // ── from_remote is None — existing behavior ─────────────────────
 
     let wt_path = worktree_path_for_session(app_data_dir, repo_path, session_id, branch_name);
     let wt_path_str = wt_path
@@ -635,6 +775,7 @@ mod tests {
             "session123",
             "test-branch",
             true,
+            None,
         );
         assert!(result.is_ok(), "create_worktree failed: {:?}", result.err());
 
@@ -666,6 +807,7 @@ mod tests {
             "session456",
             "existing-branch",
             false,
+            None,
         );
         assert!(result.is_ok(), "create_worktree failed: {:?}", result.err());
 
@@ -680,10 +822,12 @@ mod tests {
         let repo_path = repo_dir.path().to_str().unwrap();
 
         let wt1 =
-            create_worktree(app_data.path(), repo_path, "session1", "my-branch", true).unwrap();
+            create_worktree(app_data.path(), repo_path, "session1", "my-branch", true, None)
+                .unwrap();
         // Calling again with the same session+branch should return the existing one
         let wt2 =
-            create_worktree(app_data.path(), repo_path, "session1", "my-branch", true).unwrap();
+            create_worktree(app_data.path(), repo_path, "session1", "my-branch", true, None)
+                .unwrap();
 
         assert_eq!(wt1.worktree_path, wt2.worktree_path);
     }
@@ -697,6 +841,7 @@ mod tests {
             "session1",
             "branch",
             true,
+            None,
         );
         assert!(result.is_err());
     }
@@ -708,11 +853,12 @@ mod tests {
         let repo_path = repo_dir.path().to_str().unwrap();
 
         // Create first worktree on a branch
-        create_worktree(app_data.path(), repo_path, "session1", "dup-branch", true).unwrap();
+        create_worktree(app_data.path(), repo_path, "session1", "dup-branch", true, None).unwrap();
 
         // Creating with a different session reuses the existing worktree (shared)
         let wt2 =
-            create_worktree(app_data.path(), repo_path, "session2", "dup-branch", false).unwrap();
+            create_worktree(app_data.path(), repo_path, "session2", "dup-branch", false, None)
+                .unwrap();
         assert!(wt2.is_shared);
         assert_eq!(wt2.branch_name, "dup-branch");
     }
@@ -726,7 +872,8 @@ mod tests {
         let repo_path = repo_dir.path().to_str().unwrap();
 
         let wt =
-            create_worktree(app_data.path(), repo_path, "session1", "temp-branch", true).unwrap();
+            create_worktree(app_data.path(), repo_path, "session1", "temp-branch", true, None)
+                .unwrap();
         assert!(Path::new(&wt.worktree_path).exists());
 
         let result = remove_worktree(repo_path, "session1", &wt.worktree_path);
@@ -741,7 +888,8 @@ mod tests {
         let repo_path = repo_dir.path().to_str().unwrap();
 
         let wt =
-            create_worktree(app_data.path(), repo_path, "session1", "gone-branch", true).unwrap();
+            create_worktree(app_data.path(), repo_path, "session1", "gone-branch", true, None)
+                .unwrap();
         // Manually delete the directory
         std::fs::remove_dir_all(&wt.worktree_path).unwrap();
 
@@ -773,6 +921,7 @@ mod tests {
             "session1",
             "list-branch-a",
             true,
+            None,
         )
         .unwrap();
         create_worktree(
@@ -781,6 +930,7 @@ mod tests {
             "session2",
             "list-branch-b",
             true,
+            None,
         )
         .unwrap();
 
@@ -795,7 +945,8 @@ mod tests {
         let repo_path = repo_dir.path().to_str().unwrap();
 
         let wt =
-            create_worktree(app_data.path(), repo_path, "session1", "remove-me", true).unwrap();
+            create_worktree(app_data.path(), repo_path, "session1", "remove-me", true, None)
+                .unwrap();
         assert_eq!(list_worktrees(repo_path).unwrap().len(), 1);
 
         remove_worktree(repo_path, "session1", &wt.worktree_path).unwrap();
@@ -832,6 +983,7 @@ mod tests {
             "session1",
             "linked-branch",
             true,
+            None,
         )
         .unwrap();
         let branch = get_worktree_branch(&wt.worktree_path).unwrap();
@@ -878,7 +1030,7 @@ mod tests {
         let repo_dir = create_test_repo();
         let repo_path = repo_dir.path().to_str().unwrap();
 
-        create_worktree(app_data.path(), repo_path, "session1", "wt-branch", true).unwrap();
+        create_worktree(app_data.path(), repo_path, "session1", "wt-branch", true, None).unwrap();
 
         let available = is_branch_available(repo_path, "wt-branch", None).unwrap();
         assert!(!available);
@@ -891,7 +1043,8 @@ mod tests {
         let repo_path = repo_dir.path().to_str().unwrap();
 
         let wt =
-            create_worktree(app_data.path(), repo_path, "session1", "my-branch", true).unwrap();
+            create_worktree(app_data.path(), repo_path, "session1", "my-branch", true, None)
+                .unwrap();
 
         // Should be unavailable without exclude
         assert!(!is_branch_available(repo_path, "my-branch", None).unwrap());
@@ -929,7 +1082,8 @@ mod tests {
 
         // Create a worktree then manually delete its directory to make it stale
         let wt =
-            create_worktree(app_data.path(), repo_path, "session1", "stale-branch", true).unwrap();
+            create_worktree(app_data.path(), repo_path, "session1", "stale-branch", true, None)
+                .unwrap();
         assert_eq!(list_worktrees(repo_path).unwrap().len(), 1);
 
         std::fs::remove_dir_all(&wt.worktree_path).unwrap();
@@ -981,5 +1135,196 @@ mod tests {
         let json = serde_json::to_value(&info).unwrap();
         assert_eq!(json["session_id"], "sess1");
         assert_eq!(json["is_main_worktree"], true);
+    }
+
+    // ── derive_local_branch_name ─────────────────────────────────────
+
+    #[test]
+    fn test_derive_local_branch_name_simple() {
+        assert_eq!(derive_local_branch_name("origin/feature-xyz"), "feature-xyz");
+    }
+
+    #[test]
+    fn test_derive_local_branch_name_nested() {
+        assert_eq!(
+            derive_local_branch_name("origin/feature/sub-feature"),
+            "feature/sub-feature"
+        );
+    }
+
+    #[test]
+    fn test_derive_local_branch_name_no_slash() {
+        assert_eq!(derive_local_branch_name("main"), "main");
+    }
+
+    // ── create_worktree from remote branch ──────────────────────────
+
+    /// Helper: create a "remote" repo and a "local" clone so we have remote
+    /// branches to test against.
+    fn create_cloned_test_repos() -> (TempDir, TempDir) {
+        let remote_dir = create_test_repo();
+
+        // Create a branch in the remote repo
+        Command::new("git")
+            .args(["branch", "feature-xyz"])
+            .current_dir(remote_dir.path())
+            .output()
+            .unwrap();
+
+        // Clone the remote repo into a local repo
+        let local_dir = TempDir::new().unwrap();
+        let output = Command::new("git")
+            .args([
+                "clone",
+                remote_dir.path().to_str().unwrap(),
+                local_dir.path().to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git clone failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        // Configure the local clone for commits
+        for (key, val) in &[
+            ("user.email", "test@test.com"),
+            ("user.name", "Test"),
+            ("commit.gpgsign", "false"),
+        ] {
+            Command::new("git")
+                .args(["config", key, val])
+                .current_dir(local_dir.path())
+                .output()
+                .unwrap();
+        }
+
+        (remote_dir, local_dir)
+    }
+
+    #[test]
+    fn test_create_worktree_from_remote_branch() {
+        let app_data = create_test_app_data_dir();
+        let (_remote_dir, local_dir) = create_cloned_test_repos();
+        let local_path = local_dir.path().to_str().unwrap();
+
+        let result = create_worktree(
+            app_data.path(),
+            local_path,
+            "session1",
+            "",
+            false,
+            Some("origin/feature-xyz"),
+        );
+        assert!(result.is_ok(), "create_worktree failed: {:?}", result.err());
+
+        let wt = result.unwrap();
+        assert_eq!(wt.branch_name, "feature-xyz");
+        assert!(!wt.is_main_worktree);
+        assert!(Path::new(&wt.worktree_path).exists());
+
+        // Verify the local branch was created and is checked out
+        let branch = get_worktree_branch(&wt.worktree_path).unwrap();
+        assert_eq!(branch, Some("feature-xyz".to_string()));
+    }
+
+    #[test]
+    fn test_create_worktree_remote_with_existing_local_same_commit() {
+        let app_data = create_test_app_data_dir();
+        let (_remote_dir, local_dir) = create_cloned_test_repos();
+        let local_path = local_dir.path().to_str().unwrap();
+
+        // Create a local branch tracking the remote one (at the same commit)
+        Command::new("git")
+            .args(["branch", "feature-xyz", "origin/feature-xyz"])
+            .current_dir(local_dir.path())
+            .output()
+            .unwrap();
+
+        // Should succeed since local and remote point to the same commit
+        let result = create_worktree(
+            app_data.path(),
+            local_path,
+            "session1",
+            "",
+            false,
+            Some("origin/feature-xyz"),
+        );
+        assert!(result.is_ok(), "create_worktree failed: {:?}", result.err());
+
+        let wt = result.unwrap();
+        assert_eq!(wt.branch_name, "feature-xyz");
+    }
+
+    #[test]
+    fn test_create_worktree_remote_with_existing_local_different_commit() {
+        let app_data = create_test_app_data_dir();
+        let (_remote_dir, local_dir) = create_cloned_test_repos();
+        let local_path = local_dir.path().to_str().unwrap();
+
+        // Create a local branch that diverges from the remote
+        Command::new("git")
+            .args(["checkout", "-b", "feature-xyz"])
+            .current_dir(local_dir.path())
+            .output()
+            .unwrap();
+        std::fs::write(local_dir.path().join("diverge.txt"), "diverged").unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(local_dir.path())
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "Diverge"])
+            .current_dir(local_dir.path())
+            .output()
+            .unwrap();
+        // Go back to main so worktree creation can proceed
+        Command::new("git")
+            .args(["checkout", "main"])
+            .current_dir(local_dir.path())
+            .output()
+            .unwrap();
+
+        // Should fail because local and remote point to different commits
+        let result = create_worktree(
+            app_data.path(),
+            local_path,
+            "session1",
+            "",
+            false,
+            Some("origin/feature-xyz"),
+        );
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("different commit"),
+            "Expected conflict error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_create_worktree_remote_none_backward_compat() {
+        let app_data = create_test_app_data_dir();
+        let repo_dir = create_test_repo();
+        let repo_path = repo_dir.path().to_str().unwrap();
+
+        // from_remote=None should behave exactly like the old create_worktree
+        let result = create_worktree(
+            app_data.path(),
+            repo_path,
+            "session1",
+            "compat-branch",
+            true,
+            None,
+        );
+        assert!(result.is_ok(), "create_worktree failed: {:?}", result.err());
+
+        let wt = result.unwrap();
+        assert_eq!(wt.branch_name, "compat-branch");
+        assert!(!wt.is_main_worktree);
+        assert!(Path::new(&wt.worktree_path).exists());
     }
 }

@@ -1,12 +1,12 @@
 import "../styles/components/SessionBranchSelector.css";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { gitListBranchesForProject, listWorktrees, checkBranchAvailable } from "../api/git";
+import { gitListBranchesForProject, listWorktrees, checkBranchAvailable, fetchRemoteBranches } from "../api/git";
 import { validateBranchName } from "./GitBranchSelector";
 import type { GitBranch, WorktreeInfo } from "../types/git";
 
 interface SessionBranchSelectorProps {
   projectId: string;
-  onBranchSelected: (branchName: string, createNew: boolean) => void;
+  onBranchSelected: (branchName: string, createNew: boolean, fromRemote?: string) => void;
   onSkip: () => void;
 }
 
@@ -15,6 +15,36 @@ type Tab = "existing" | "new";
 interface BranchWithAvailability extends GitBranch {
   taken: boolean;
   takenBySession: string | null;
+}
+
+// ─── Pure helpers (exported for testing) ──────────────────────────────
+
+/** Strip remote prefix (e.g. "origin/feature" -> "feature") */
+export function stripRemotePrefix(name: string): string {
+  const slashIndex = name.indexOf("/");
+  return slashIndex >= 0 ? name.slice(slashIndex + 1) : name;
+}
+
+/** Extract remote prefix (e.g. "origin/feature" -> "origin/") */
+export function getRemotePrefix(name: string): string {
+  const slashIndex = name.indexOf("/");
+  return slashIndex >= 0 ? name.slice(0, slashIndex + 1) : "";
+}
+
+/** Group augmented branches into local and remote sections */
+export function groupAugmentedBranches(
+  branches: BranchWithAvailability[],
+): { local: BranchWithAvailability[]; remote: BranchWithAvailability[] } {
+  const local: BranchWithAvailability[] = [];
+  const remote: BranchWithAvailability[] = [];
+  for (const b of branches) {
+    if (b.is_remote) {
+      remote.push(b);
+    } else {
+      local.push(b);
+    }
+  }
+  return { local, remote };
 }
 
 export function SessionBranchSelector({ projectId, onBranchSelected, onSkip }: SessionBranchSelectorProps) {
@@ -26,6 +56,7 @@ export function SessionBranchSelector({ projectId, onBranchSelected, onSkip }: S
   const [search, setSearch] = useState("");
   const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const [fetchingRemotes, setFetchingRemotes] = useState(false);
 
   // New branch form
   const [newBranchName, setNewBranchName] = useState("");
@@ -53,11 +84,50 @@ export function SessionBranchSelector({ projectId, onBranchSelected, onSkip }: S
       const current = branchList.find((b) => b.is_current && !b.is_remote);
       const firstLocal = branchList.find((b) => !b.is_remote);
       setBaseBranch(current?.name || firstLocal?.name || "");
+
+      // Fire a background fetch for fresh remote branches (non-blocking)
+      setFetchingRemotes(true);
+      fetchRemoteBranches(projectId)
+        .then((remoteBranches) => {
+          setBranches((prev) => {
+            // Merge: keep all local branches, replace remote branches with fresh data
+            const locals = prev.filter((b) => !b.is_remote);
+            // Deduplicate remote branches by name
+            const existingRemoteNames = new Set(remoteBranches.map((b) => b.name));
+            const existingRemotesFromPrev = prev.filter(
+              (b) => b.is_remote && !existingRemoteNames.has(b.name),
+            );
+            return [...locals, ...existingRemotesFromPrev, ...remoteBranches];
+          });
+        })
+        .catch(() => {
+          // Non-critical — remote branches from initial list are still available
+        })
+        .finally(() => setFetchingRemotes(false));
     } catch (e) {
       setError(String(e));
     } finally {
       setLoading(false);
     }
+  }, [projectId]);
+
+  const handleRefreshRemotes = useCallback(() => {
+    setFetchingRemotes(true);
+    fetchRemoteBranches(projectId)
+      .then((remoteBranches) => {
+        setBranches((prev) => {
+          const locals = prev.filter((b) => !b.is_remote);
+          const existingRemoteNames = new Set(remoteBranches.map((b) => b.name));
+          const existingRemotesFromPrev = prev.filter(
+            (b) => b.is_remote && !existingRemoteNames.has(b.name),
+          );
+          return [...locals, ...existingRemotesFromPrev, ...remoteBranches];
+        });
+      })
+      .catch(() => {
+        // Non-critical
+      })
+      .finally(() => setFetchingRemotes(false));
   }, [projectId]);
 
   useEffect(() => {
@@ -86,7 +156,6 @@ export function SessionBranchSelector({ projectId, onBranchSelected, onSkip }: S
 
   const augmentedBranches: BranchWithAvailability[] = useMemo(() => {
     return branches
-      .filter((b) => !b.is_remote)
       .map((b) => ({
         ...b,
         taken: takenBranches.has(b.name),
@@ -94,17 +163,36 @@ export function SessionBranchSelector({ projectId, onBranchSelected, onSkip }: S
       }));
   }, [branches, takenBranches]);
 
+  // Only local branches for the "New Branch" base selector
+  const localAugmentedBranches = useMemo(
+    () => augmentedBranches.filter((b) => !b.is_remote),
+    [augmentedBranches],
+  );
+
   const localBranchNames = useMemo(
     () => new Set(branches.filter((b) => !b.is_remote).map((b) => b.name)),
     [branches],
   );
 
-  // Filter branches by search
+  // Filter branches by search — across both local and remote
   const filteredBranches = useMemo(() => {
-    if (!search.trim()) return augmentedBranches;
-    const q = search.toLowerCase();
-    return augmentedBranches.filter((b) => b.name.toLowerCase().includes(q));
+    const filtered = search.trim()
+      ? augmentedBranches.filter((b) => b.name.toLowerCase().includes(search.toLowerCase()))
+      : augmentedBranches;
+    return filtered;
   }, [augmentedBranches, search]);
+
+  // Group filtered branches into local and remote
+  const { local: filteredLocal, remote: filteredRemote } = useMemo(
+    () => groupAugmentedBranches(filteredBranches),
+    [filteredBranches],
+  );
+
+  // Flat list for keyboard navigation (local first, then remote)
+  const flatFiltered = useMemo(
+    () => [...filteredLocal, ...filteredRemote],
+    [filteredLocal, filteredRemote],
+  );
 
   // Reset highlight when search changes
   useEffect(() => {
@@ -166,10 +254,16 @@ export function SessionBranchSelector({ projectId, onBranchSelected, onSkip }: S
   );
 
   const handleConfirmExisting = useCallback(() => {
-    if (selectedBranch) {
+    if (!selectedBranch) return;
+    const branch = augmentedBranches.find((b) => b.name === selectedBranch);
+    if (branch?.is_remote) {
+      // For remote branches: pass the local name (stripped prefix) and the full remote ref
+      const localName = stripRemotePrefix(branch.name);
+      onBranchSelected(localName, false, branch.name);
+    } else {
       onBranchSelected(selectedBranch, false);
     }
-  }, [selectedBranch, onBranchSelected]);
+  }, [selectedBranch, augmentedBranches, onBranchSelected]);
 
   const handleConfirmNew = useCallback(() => {
     if (!newBranchName.trim() || validationError || checkingAvailability) return;
@@ -180,13 +274,13 @@ export function SessionBranchSelector({ projectId, onBranchSelected, onSkip }: S
     if (tab === "existing") {
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setHighlightedIndex((prev) => Math.min(prev + 1, filteredBranches.length - 1));
+        setHighlightedIndex((prev) => Math.min(prev + 1, flatFiltered.length - 1));
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
         setHighlightedIndex((prev) => Math.max(prev - 1, -1));
       } else if (e.key === "Enter" && highlightedIndex >= 0) {
         e.preventDefault();
-        const branch = filteredBranches[highlightedIndex];
+        const branch = flatFiltered[highlightedIndex];
         if (branch && !branch.taken) {
           if (selectedBranch === branch.name) {
             handleConfirmExisting();
@@ -202,6 +296,18 @@ export function SessionBranchSelector({ projectId, onBranchSelected, onSkip }: S
       }
     }
   };
+
+  // Compute the flat index offset for remote branches
+  const remoteIndexOffset = filteredLocal.length;
+
+  // Check if a remote branch has a local tracking counterpart
+  const hasLocalTracking = useCallback(
+    (remoteBranch: BranchWithAvailability): boolean => {
+      const localName = stripRemotePrefix(remoteBranch.name);
+      return localBranchNames.has(localName);
+    },
+    [localBranchNames],
+  );
 
   // Loading state
   if (loading) {
@@ -234,7 +340,7 @@ export function SessionBranchSelector({ projectId, onBranchSelected, onSkip }: S
   }
 
   // No branches (not a git repo or empty repo)
-  if (augmentedBranches.length === 0) {
+  if (localAugmentedBranches.length === 0 && filteredRemote.length === 0) {
     return (
       <div className="branch-selector-body">
         <div className="session-creator-section-title">Select Branch</div>
@@ -286,40 +392,102 @@ export function SessionBranchSelector({ projectId, onBranchSelected, onSkip }: S
             spellCheck={false}
           />
           <div className="branch-selector-list" ref={listRef}>
-            {filteredBranches.length === 0 && (
+            {flatFiltered.length === 0 && (
               <div className="branch-selector-empty">
                 No branches matching &ldquo;{search}&rdquo;
               </div>
             )}
-            {filteredBranches.map((branch, idx) => (
-              <div
-                key={branch.name}
-                className={[
-                  "branch-selector-item",
-                  branch.taken ? "branch-selector-item-taken" : "",
-                  selectedBranch === branch.name ? "branch-selector-item-selected" : "",
-                  highlightedIndex === idx ? "branch-selector-item-highlighted" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                onClick={() => !branch.taken && handleSelectBranch(branch.name)}
-              >
-                <span className="branch-selector-item-name">{branch.name}</span>
-                {branch.is_current && (
-                  <span className="branch-selector-item-current">current</span>
-                )}
-                {branch.taken && (
-                  <span className="branch-selector-item-taken-label">
-                    In use
-                  </span>
-                )}
-                {!branch.taken && branch.last_commit_summary && (
-                  <span className="branch-selector-item-summary">
-                    {branch.last_commit_summary}
-                  </span>
-                )}
-              </div>
-            ))}
+
+            {/* Local branches section */}
+            {filteredLocal.length > 0 && (
+              <>
+                <div className="branch-selector-group-header">LOCAL BRANCHES</div>
+                {filteredLocal.map((branch, idx) => (
+                  <div
+                    key={branch.name}
+                    className={[
+                      "branch-selector-item",
+                      branch.taken ? "branch-selector-item-taken" : "",
+                      selectedBranch === branch.name ? "branch-selector-item-selected" : "",
+                      highlightedIndex === idx ? "branch-selector-item-highlighted" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    onClick={() => !branch.taken && handleSelectBranch(branch.name)}
+                  >
+                    <span className="branch-selector-item-name">{branch.name}</span>
+                    {branch.is_current && (
+                      <span className="branch-selector-item-current">current</span>
+                    )}
+                    {branch.taken && (
+                      <span className="branch-selector-item-taken-label">
+                        In use
+                      </span>
+                    )}
+                    {!branch.taken && branch.last_commit_summary && (
+                      <span className="branch-selector-item-summary">
+                        {branch.last_commit_summary}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </>
+            )}
+
+            {/* Remote branches section */}
+            {filteredRemote.length > 0 && (
+              <>
+                <div className="branch-selector-group-header">
+                  <span>REMOTE BRANCHES</span>
+                  <button
+                    className="branch-selector-refresh-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRefreshRemotes();
+                    }}
+                    disabled={fetchingRemotes}
+                    title="Refresh remote branches"
+                  >
+                    <span className={fetchingRemotes ? "branch-selector-refresh-spinning" : ""}>
+                      &#x21bb;
+                    </span>
+                  </button>
+                </div>
+                {filteredRemote.map((branch, idx) => (
+                  <div
+                    key={branch.name}
+                    className={[
+                      "branch-selector-item",
+                      "branch-selector-item-remote",
+                      branch.taken ? "branch-selector-item-taken" : "",
+                      selectedBranch === branch.name ? "branch-selector-item-selected" : "",
+                      highlightedIndex === remoteIndexOffset + idx ? "branch-selector-item-highlighted" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    onClick={() => !branch.taken && handleSelectBranch(branch.name)}
+                  >
+                    <span className="branch-selector-item-name">
+                      <span className="branch-selector-remote-prefix">{getRemotePrefix(branch.name)}</span>
+                      {stripRemotePrefix(branch.name)}
+                    </span>
+                    {hasLocalTracking(branch) && (
+                      <span className="branch-selector-tracking-badge">tracking</span>
+                    )}
+                    {branch.taken && (
+                      <span className="branch-selector-item-taken-label">
+                        In use
+                      </span>
+                    )}
+                    {!branch.taken && branch.last_commit_summary && (
+                      <span className="branch-selector-item-summary">
+                        {branch.last_commit_summary}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </>
+            )}
           </div>
           <div className="session-creator-hints">
             <span><kbd>&uarr;&darr;</kbd> navigate</span>
@@ -356,7 +524,7 @@ export function SessionBranchSelector({ projectId, onBranchSelected, onSkip }: S
               value={baseBranch}
               onChange={(e) => setBaseBranch(e.target.value)}
             >
-              {augmentedBranches.map((b) => (
+              {localAugmentedBranches.map((b) => (
                 <option key={b.name} value={b.name}>
                   {b.name}{b.is_current ? " (current)" : ""}
                 </option>

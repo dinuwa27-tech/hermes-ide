@@ -65,6 +65,10 @@ export function gitListBranchesForProject(projectId: string): Promise<GitBranch[
   return invoke<GitBranch[]>("git_list_branches_for_project", { projectId });
 }
 
+export function fetchRemoteBranches(projectId: string): Promise<GitBranch[]> {
+  return invoke<GitBranch[]>("git_fetch_remote_branches", { projectId });
+}
+
 export function gitBranchesAheadBehind(sessionId: string, projectId: string): Promise<Record<string, [number, number]>> {
   return invoke<Record<string, [number, number]>>("git_branches_ahead_behind", { sessionId, projectId });
 }
@@ -237,12 +241,14 @@ export async function createWorktree(
   projectId: string,
   branchName: string,
   createBranch: boolean = false,
+  fromRemote?: string,
 ): Promise<WorktreeCreateResult> {
   return invoke<WorktreeCreateResult>("git_create_worktree", {
     sessionId,
     projectId,
     branchName,
     createBranch,
+    fromRemote: fromRemote ?? null,
   });
 }
 

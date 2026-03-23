@@ -507,6 +507,7 @@ describe("Git API - Worktree functions", () => {
       projectId: "project-1",
       branchName: "feat",
       createBranch: true,
+      fromRemote: null,
     });
     expect(result.worktreePath).toBe("/repos/.worktrees/feat");
     expect(result.branchName).toBe("feat");
@@ -525,6 +526,7 @@ describe("Git API - Worktree functions", () => {
       projectId: "r1",
       branchName: "existing",
       createBranch: false,
+      fromRemote: null,
     });
   });
 

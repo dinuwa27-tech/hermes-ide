@@ -434,6 +434,7 @@ describe("Worktree edge cases", () => {
       projectId: "r1",
       branchName: "existing-branch",
       createBranch: false,
+      fromRemote: null,
     });
     expect(result.branchName).toBe("existing-branch");
   });

@@ -131,7 +131,7 @@ export function SessionCreator({ onClose, onCreate, defaultGroup }: SessionCreat
   const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
 
   // Branch selection state — per-project
-  type BranchSelection = { branch: string; createNew: boolean };
+  type BranchSelection = { branch: string; createNew: boolean; fromRemote?: string };
   const [gitProjectIds, setGitProjectIds] = useState<string[]>([]);
   const [checkingGit, setCheckingGit] = useState(false);
   const [branchSelections, setBranchSelections] = useState<Record<string, BranchSelection>>({});
@@ -884,10 +884,10 @@ export function SessionCreator({ onClose, onCreate, defaultGroup }: SessionCreat
                       {isExpanded && (
                         <SessionBranchSelector
                           projectId={projectId}
-                          onBranchSelected={(name, isNew) => {
+                          onBranchSelected={(name, isNew, fromRemote) => {
                             setBranchSelections((prev) => ({
                               ...prev,
-                              [projectId]: { branch: name, createNew: isNew },
+                              [projectId]: { branch: name, createNew: isNew, fromRemote },
                             }));
                           }}
                           onSkip={() => {
