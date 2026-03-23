@@ -251,19 +251,15 @@ describe("P0#3: Worktree creation failure emits error event", () => {
 // =====================================================================
 
 describe("P1#7: Shared branch warning text", () => {
-  it("SessionBranchSelector source contains updated warning text", async () => {
+  it("SessionBranchSelector source contains shared-branch warning as tooltip", async () => {
     const fs = await import("fs");
     const path = await import("path");
     const filePath = path.resolve(__dirname, "../components/SessionBranchSelector.tsx");
     const source = fs.readFileSync(filePath, "utf-8");
 
-    expect(source).toContain(
-      "Using the same branch as another session means both sessions share"
-    );
-    expect(source).toContain(
-      "the same files. Changes in one session will immediately appear in"
-    );
-    // Old text should be gone
+    // Warning moved to tooltip on "Use current branch" button
+    expect(source).toContain("changes will be shared");
+    // Old inline warning block should be gone
     expect(source).not.toContain(
       "Skipping means this session will share the working directory"
     );
@@ -323,7 +319,7 @@ describe("P2#9: Taken branch label", () => {
     const filePath = path.resolve(__dirname, "../components/SessionBranchSelector.tsx");
     const source = fs.readFileSync(filePath, "utf-8");
 
-    expect(source).toContain("In use");
+    expect(source).toContain("in use");
     expect(source).not.toContain("Session is here");
   });
 });

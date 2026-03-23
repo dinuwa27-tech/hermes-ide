@@ -3236,23 +3236,45 @@ pub fn git_fetch_remote_branches(
     let project_path = project.path.clone();
     drop(db);
 
-    // Run `git fetch --all --prune` with a 5-second timeout
-    let fetch_child = std::process::Command::new("git")
+    // Run `git fetch --all --prune` with a 5-second timeout.
+    // If the fetch takes too long (slow network, auth prompt, etc.) we kill it
+    // and fall back to listing whatever remote refs are cached locally.
+    match std::process::Command::new("git")
         .current_dir(&project_path)
         .args(["fetch", "--all", "--prune"])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Failed to spawn 'git fetch': {}", e))?;
-
-    let fetch_output = fetch_child
-        .wait_with_output()
-        .map_err(|e| format!("Failed to wait for 'git fetch': {}", e))?;
-
-    if !fetch_output.status.success() {
-        let stderr = String::from_utf8_lossy(&fetch_output.stderr);
-        log::warn!("git fetch warning: {}", stderr.trim());
-        // Non-fatal: we still list whatever remote branches exist locally
+    {
+        Ok(mut child) => {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            loop {
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        if !status.success() {
+                            log::warn!("git fetch exited with non-zero status");
+                        }
+                        break;
+                    }
+                    Ok(None) => {
+                        if std::time::Instant::now() >= deadline {
+                            log::warn!("git fetch timed out after 5s — killing");
+                            let _ = child.kill();
+                            let _ = child.wait();
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                    Err(e) => {
+                        log::warn!("git fetch wait error: {}", e);
+                        break;
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            log::warn!("Failed to spawn 'git fetch': {} — using cached refs", e);
+        }
     }
 
     // List remote branches using git2
