@@ -2317,6 +2317,9 @@ const VALID_SETTING_KEYS: &[&str] = &[
     // Autonomous mode
     "auto_command_min_frequency",
     "auto_cancel_delay_ms",
+    // AI agent defaults
+    "default_permission_mode",
+    "custom_command_suffix",
     // Keyboard shortcuts
     "command_palette_shortcut",
     // Plugin updates

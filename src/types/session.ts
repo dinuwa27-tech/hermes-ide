@@ -107,6 +107,8 @@ export interface SessionData {
   metrics: SessionMetrics;
   ai_provider: string | null;
   auto_approve: boolean;
+  permission_mode: string;
+  custom_suffix: string;
   channels: string[];
   context_injected: boolean;
   ssh_info: SshConnectionInfo | null;
@@ -142,6 +144,10 @@ export interface ExecutionNode {
 
 export type ExecutionMode = "manual" | "assisted" | "autonomous";
 
+// ─── Permission Mode ────────────────────────────────────────────────
+
+export type PermissionMode = "default" | "acceptEdits" | "plan" | "auto" | "bypassPermissions";
+
 // ─── Session Creation ────────────────────────────────────────────────
 
 export interface CreateSessionOpts {
@@ -154,6 +160,8 @@ export interface CreateSessionOpts {
   restoreFromId?: string;
   aiProvider?: string;
   autoApprove?: boolean;
+  permissionMode?: string;
+  customSuffix?: string;
   projectIds?: string[];
   branchName?: string;
   createNewBranch?: boolean;
@@ -178,6 +186,8 @@ export interface SavedSessionInfo {
   working_directory: string;
   ai_provider: string | null;
   auto_approve: boolean;
+  permission_mode: string;
+  custom_suffix: string;
   project_ids: string[];
   ssh_info?: SshConnectionInfo | null;
 }
@@ -214,6 +224,10 @@ export function validateSavedWorkspace(raw: unknown): SavedWorkspace | null {
     if (typeof si.color !== "string") si.color = "";
     if (typeof si.working_directory !== "string") si.working_directory = "";
     if (typeof si.auto_approve !== "boolean") si.auto_approve = false;
+    if (typeof si.permission_mode !== "string") {
+      si.permission_mode = si.auto_approve ? "bypassPermissions" : "default";
+    }
+    if (typeof si.custom_suffix !== "string") si.custom_suffix = "";
     if (!Array.isArray(si.project_ids)) si.project_ids = [];
   }
 

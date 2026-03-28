@@ -108,6 +108,14 @@ export function StatusBar({ onOpenShortcuts, updateAvailable, updateVersion, upd
             <span className="status-bar-item">
               {active.detected_agent.name}
               {active.detected_agent.model && <span className="status-bar-model"> ({active.detected_agent.model})</span>}
+              {active.permission_mode && active.permission_mode !== "default" && (
+                <span className={`status-bar-perm-mode${active.permission_mode === "bypassPermissions" ? " status-bar-perm-mode-danger" : ""}`}>
+                  {active.permission_mode === "acceptEdits" ? "Accept Edits" :
+                   active.permission_mode === "plan" ? "Plan" :
+                   active.permission_mode === "auto" ? "Auto" :
+                   active.permission_mode === "bypassPermissions" ? "Bypass" : ""}
+                </span>
+              )}
               {active.phase === "busy" && <span className="status-bar-busy">working</span>}
               {active.phase === "needs_input" && <span className="status-bar-needs-input">needs input</span>}
             </span>

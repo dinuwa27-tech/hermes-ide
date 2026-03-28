@@ -208,6 +208,7 @@ export function Settings({ onClose, initialTab, pluginRuntime, onConfirmPluginUp
     { id: "ssh", label: "SSH" },
     { id: "git", label: "Git" },
     { id: "autonomous", label: "Autonomous" },
+    { id: "ai-agent", label: "AI Agent" },
     { id: "shortcuts", label: "Shortcuts" },
     { id: "plugins", label: "Plugins" },
     { id: "privacy", label: "Privacy" },
@@ -755,6 +756,42 @@ export function Settings({ onClose, initialTab, pluginRuntime, onConfirmPluginUp
                     value={settings.auto_cancel_delay_ms || "3000"}
                     onChange={(e) => updateSetting("auto_cancel_delay_ms", e.target.value)}
                   />
+                </div>
+              </div>
+            )}
+
+            {activeTab === "ai-agent" && (
+              <div className="settings-section">
+                <p className="settings-hint">
+                  Default permission mode and custom flags for new AI agent sessions.
+                  These can be overridden per session in the session creator.
+                </p>
+                <div className="settings-group">
+                  <label className="settings-label">Default permission mode</label>
+                  <select
+                    className="settings-select"
+                    value={settings.default_permission_mode || "default"}
+                    onChange={(e) => updateSetting("default_permission_mode", e.target.value)}
+                  >
+                    <option value="default">Ask Permissions</option>
+                    <option value="acceptEdits">Accept Edits</option>
+                    <option value="plan">Plan Mode</option>
+                    <option value="auto">Auto Mode</option>
+                    <option value="bypassPermissions">Bypass Permissions</option>
+                  </select>
+                </div>
+                <div className="settings-group">
+                  <label className="settings-label">Custom command suffix</label>
+                  <input
+                    type="text"
+                    className="settings-input"
+                    value={settings.custom_command_suffix || ""}
+                    onChange={(e) => updateSetting("custom_command_suffix", e.target.value)}
+                    placeholder="e.g. --model opus --max-tokens 4096"
+                  />
+                  <p className="settings-hint">
+                    Text appended to AI agent launch commands in every new session.
+                  </p>
                 </div>
               </div>
             )}

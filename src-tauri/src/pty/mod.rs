@@ -198,27 +198,37 @@ impl PtyManager {
 
 // ─── Helper Functions ───────────────────────────────────────────────
 
-pub(crate) fn ai_launch_command(provider: &str, auto_approve: bool) -> Option<String> {
+pub(crate) fn ai_launch_command(provider: &str, permission_mode: &str, custom_suffix: &str) -> Option<String> {
     let base = match provider {
         "claude" => "claude",
         "aider" => "aider",
         "codex" => "codex",
         "gemini" => "gemini",
-        "copilot" => return Some("gh copilot".to_string()),
+        "copilot" => return Some(format_with_suffix("gh copilot", custom_suffix)),
         _ => return None,
     };
     let mut cmd = base.to_string();
-    if auto_approve {
-        let flag = match provider {
-            "claude" => " --dangerously-skip-permissions",
-            "aider" => " --yes",
-            "codex" => " --full-auto",
-            "gemini" => " --yolo",
-            _ => "",
-        };
-        cmd.push_str(flag);
+    let flag = match (provider, permission_mode) {
+        ("claude", "acceptEdits") => " --permission-mode acceptEdits",
+        ("claude", "plan") => " --permission-mode plan",
+        ("claude", "auto") => " --permission-mode auto",
+        ("claude", "bypassPermissions") => " --permission-mode bypassPermissions",
+        ("aider", "bypassPermissions") => " --yes",
+        ("codex", "bypassPermissions") => " --full-auto",
+        ("gemini", "bypassPermissions") => " --yolo",
+        _ => "",
+    };
+    cmd.push_str(flag);
+    Some(format_with_suffix(&cmd, custom_suffix))
+}
+
+fn format_with_suffix(cmd: &str, custom_suffix: &str) -> String {
+    let trimmed = custom_suffix.trim();
+    if trimmed.is_empty() {
+        cmd.to_string()
+    } else {
+        format!("{} {}", cmd, trimmed)
     }
-    Some(cmd)
 }
 
 /// Build the `--channels` suffix for Claude sessions.
@@ -623,38 +633,70 @@ mod tests {
     // ── AI launch command coverage ──
 
     #[test]
-    fn ai_launch_command_all_providers() {
+    fn ai_launch_command_default_mode() {
         use super::ai_launch_command;
 
-        // Without auto-approve
-        assert_eq!(ai_launch_command("claude", false), Some("claude".into()));
-        assert_eq!(ai_launch_command("aider", false), Some("aider".into()));
-        assert_eq!(ai_launch_command("codex", false), Some("codex".into()));
-        assert_eq!(ai_launch_command("gemini", false), Some("gemini".into()));
-        assert_eq!(
-            ai_launch_command("copilot", false),
-            Some("gh copilot".into())
-        );
-        assert_eq!(ai_launch_command("unknown", false), None);
+        assert_eq!(ai_launch_command("claude", "default", ""), Some("claude".into()));
+        assert_eq!(ai_launch_command("aider", "default", ""), Some("aider".into()));
+        assert_eq!(ai_launch_command("codex", "default", ""), Some("codex".into()));
+        assert_eq!(ai_launch_command("gemini", "default", ""), Some("gemini".into()));
+        assert_eq!(ai_launch_command("copilot", "default", ""), Some("gh copilot".into()));
+        assert_eq!(ai_launch_command("unknown", "default", ""), None);
+    }
 
-        // With auto-approve
+    #[test]
+    fn ai_launch_command_permission_modes() {
+        use super::ai_launch_command;
+
+        // Claude supports all modes
         assert_eq!(
-            ai_launch_command("claude", true),
-            Some("claude --dangerously-skip-permissions".into())
+            ai_launch_command("claude", "acceptEdits", ""),
+            Some("claude --permission-mode acceptEdits".into())
         );
-        assert_eq!(ai_launch_command("aider", true), Some("aider --yes".into()));
         assert_eq!(
-            ai_launch_command("codex", true),
-            Some("codex --full-auto".into())
+            ai_launch_command("claude", "plan", ""),
+            Some("claude --permission-mode plan".into())
         );
         assert_eq!(
-            ai_launch_command("gemini", true),
-            Some("gemini --yolo".into())
+            ai_launch_command("claude", "auto", ""),
+            Some("claude --permission-mode auto".into())
         );
-        // copilot doesn't have auto-approve flag
         assert_eq!(
-            ai_launch_command("copilot", true),
-            Some("gh copilot".into())
+            ai_launch_command("claude", "bypassPermissions", ""),
+            Some("claude --permission-mode bypassPermissions".into())
+        );
+
+        // Other providers only support bypassPermissions
+        assert_eq!(ai_launch_command("aider", "bypassPermissions", ""), Some("aider --yes".into()));
+        assert_eq!(ai_launch_command("codex", "bypassPermissions", ""), Some("codex --full-auto".into()));
+        assert_eq!(ai_launch_command("gemini", "bypassPermissions", ""), Some("gemini --yolo".into()));
+
+        // Unsupported modes fall back to no flag
+        assert_eq!(ai_launch_command("aider", "plan", ""), Some("aider".into()));
+        assert_eq!(ai_launch_command("copilot", "bypassPermissions", ""), Some("gh copilot".into()));
+    }
+
+    #[test]
+    fn ai_launch_command_custom_suffix() {
+        use super::ai_launch_command;
+
+        assert_eq!(
+            ai_launch_command("claude", "default", "--model opus"),
+            Some("claude --model opus".into())
+        );
+        assert_eq!(
+            ai_launch_command("claude", "plan", "--verbose"),
+            Some("claude --permission-mode plan --verbose".into())
+        );
+        // Suffix is trimmed
+        assert_eq!(
+            ai_launch_command("aider", "default", "  --dark-mode  "),
+            Some("aider --dark-mode".into())
+        );
+        // Empty suffix
+        assert_eq!(
+            ai_launch_command("claude", "default", "   "),
+            Some("claude".into())
         );
     }
 
@@ -690,11 +732,11 @@ mod tests {
     fn test_full_claude_command_with_prompt_and_channels() {
         use super::{ai_launch_command, channels_suffix};
         // Simulate the call-site pattern: base + prompt + channels
-        let base = ai_launch_command("claude", true).unwrap();
+        let base = ai_launch_command("claude", "bypassPermissions", "").unwrap();
         let prompt = format!("{} \"Read context\"", base);
         let channels = vec!["plugin:telegram@claude-plugins-official".to_string()];
         let full = format!("{}{}", prompt, channels_suffix(&channels));
-        assert_eq!(full, "claude --dangerously-skip-permissions \"Read context\" --channels plugin:telegram@claude-plugins-official");
+        assert_eq!(full, "claude --permission-mode bypassPermissions \"Read context\" --channels plugin:telegram@claude-plugins-official");
     }
 
     // ── Prompt detection after column fix ──

@@ -7,10 +7,10 @@ import { CreateSessionOpts } from "../state/SessionContext";
 import { getProjectsOrdered, createProject, deleteProject } from "../api/projects";
 import type { ProjectOrdered } from "../types/project";
 import { getSessions, sshListTmuxSessions, checkAiProviders } from "../api/sessions";
-import { AI_PROVIDERS, AUTO_APPROVE_FLAGS, getProviderInfo } from "../utils/aiProviders";
+import { AI_PROVIDERS, getProviderInfo, PERMISSION_MODES, PERMISSION_MODE_FLAGS, getAvailableModes } from "../utils/aiProviders";
 import { getSetting, setSetting } from "../api/settings";
 import { listSshSavedHosts, upsertSshSavedHost, type SshSavedHost } from "../api/ssh";
-import type { TmuxSessionEntry } from "../types/session";
+import type { PermissionMode, TmuxSessionEntry } from "../types/session";
 import { isGitRepo as checkIsGitRepo } from "../api/git";
 import { LANG_COLORS } from "../utils/langColors";
 import { SessionBranchSelector } from "./SessionBranchSelector";
@@ -126,6 +126,8 @@ export function SessionCreator({ onClose, onCreate, defaultGroup }: SessionCreat
 
   // Auto-approve (skip permissions) state
   const [autoApprove, setAutoApprove] = useState(false);
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>("default");
+  const [customSuffix, setCustomSuffix] = useState("");
 
   // Channel plugins state (Claude only)
   const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
@@ -220,6 +222,12 @@ export function SessionCreator({ onClose, onCreate, defaultGroup }: SessionCreat
     checkAiProviders()
       .then((r) => { setProviderAvailability(r); setAvailabilityLoaded(true); })
       .catch((err) => { console.warn("[SessionCreator] Failed to check AI providers:", err); setAvailabilityLoaded(true); });
+    getSetting("default_permission_mode")
+      .then((val) => { if (val) setPermissionMode(val as PermissionMode); })
+      .catch(() => {});
+    getSetting("custom_command_suffix")
+      .then((val) => { if (val) setCustomSuffix(val); })
+      .catch(() => {});
     getSetting(SSH_HISTORY_KEY)
       .then((json) => {
         const history = parseSshHistory(json);
@@ -425,6 +433,8 @@ export function SessionCreator({ onClose, onCreate, defaultGroup }: SessionCreat
         color: selectedColor,
         aiProvider: connectionType === "local" ? (aiProvider || undefined) : undefined,
         autoApprove: connectionType === "local" ? (autoApprove || undefined) : undefined,
+        permissionMode: connectionType === "local" && aiProvider ? permissionMode : undefined,
+        customSuffix: connectionType === "local" && aiProvider && customSuffix.trim() ? customSuffix.trim() : undefined,
         channels: connectionType === "local" && aiProvider === "claude" && selectedChannels.length > 0 ? selectedChannels : undefined,
         projectIds: connectionType === "local" && selectedProjectIds.length > 0 ? selectedProjectIds : undefined,
         workingDirectory: connectionType === "local" ? firstProjectPath : undefined,
@@ -477,7 +487,7 @@ export function SessionCreator({ onClose, onCreate, defaultGroup }: SessionCreat
   const selectProviderAndAdvance = (idx: number) => {
     const id = enabledProviders[idx] ?? null;
     setAiProvider(id as string | null);
-    if (!id || !AUTO_APPROVE_FLAGS[id]) setAutoApprove(false);
+    if (!id) { setAutoApprove(false); setPermissionMode("default"); }
     if (id !== "claude") setSelectedChannels([]);
     goNext();
   };
@@ -1085,23 +1095,50 @@ export function SessionCreator({ onClose, onCreate, defaultGroup }: SessionCreat
                 <div className="session-creator-install-hint-auth">{getProviderInfo(aiProvider)?.authHint}</div>
               </div>
             )}
-            {aiProvider && AUTO_APPROVE_FLAGS[aiProvider] && (
-              <label className="session-creator-auto-approve">
-                <input
-                  type="checkbox"
-                  checked={autoApprove}
-                  onChange={(e) => setAutoApprove(e.target.checked)}
-                />
-                <div className="session-creator-auto-approve-text">
-                  <span className="session-creator-auto-approve-label">
-                    Auto-approve all actions
-                    <code>{AUTO_APPROVE_FLAGS[aiProvider].flag}</code>
-                  </span>
-                  <span className="session-creator-auto-approve-desc">
-                    {AUTO_APPROVE_FLAGS[aiProvider].description}
-                  </span>
+            {aiProvider && (
+              <div className="session-creator-permission-mode">
+                <div className="session-creator-permission-mode-label">Permission Mode</div>
+                <div className="session-creator-permission-mode-pills">
+                  {getAvailableModes(aiProvider).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      className={`session-creator-permission-pill${permissionMode === mode ? " session-creator-permission-pill-active" : ""}${mode === "bypassPermissions" ? " session-creator-permission-pill-danger" : ""}`}
+                      onClick={() => {
+                        setPermissionMode(mode);
+                        setAutoApprove(mode === "bypassPermissions");
+                      }}
+                    >
+                      {PERMISSION_MODES[mode].shortLabel}
+                    </button>
+                  ))}
                 </div>
-              </label>
+                <div className="session-creator-permission-mode-info">
+                  <span className="session-creator-permission-mode-desc">
+                    {PERMISSION_MODES[permissionMode].description}
+                  </span>
+                  {PERMISSION_MODE_FLAGS[aiProvider]?.[permissionMode]?.flag && (
+                    <code className="session-creator-permission-mode-flag">
+                      {PERMISSION_MODE_FLAGS[aiProvider][permissionMode]!.flag}
+                    </code>
+                  )}
+                </div>
+              </div>
+            )}
+            {aiProvider && (
+              <div className="session-creator-custom-suffix">
+                <div className="session-creator-custom-suffix-label">Custom flags</div>
+                <input
+                  type="text"
+                  className="session-creator-custom-suffix-input"
+                  value={customSuffix}
+                  onChange={(e) => setCustomSuffix(e.target.value)}
+                  placeholder="e.g. --model opus --max-tokens 4096"
+                />
+                <span className="session-creator-custom-suffix-hint">
+                  Appended to the AI agent launch command
+                </span>
+              </div>
             )}
             {aiProvider === "claude" && (
               <div className="session-creator-channels">
@@ -1197,8 +1234,8 @@ export function SessionCreator({ onClose, onCreate, defaultGroup }: SessionCreat
                     <span className="session-creator-summary-label">{isShellOnly ? "Type:" : "AI Engine:"}</span>
                     <span className="session-creator-summary-value">
                       {aiProvider ? AI_PROVIDERS.find((p) => p.id === aiProvider)?.label ?? aiProvider : "Shell Only"}
-                      {autoApprove && aiProvider && AUTO_APPROVE_FLAGS[aiProvider] && (
-                        <span className="session-creator-summary-flag"> (auto-approve)</span>
+                      {aiProvider && permissionMode !== "default" && (
+                        <span className="session-creator-summary-flag"> ({PERMISSION_MODES[permissionMode].shortLabel})</span>
                       )}
                     </span>
                   </div>
