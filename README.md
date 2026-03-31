@@ -54,7 +54,15 @@ Hermes IDE is a desktop terminal emulator that deeply integrates AI assistance i
 
 ## Getting Started
 
-### Prerequisites
+### Download & Installation
+
+Download the latest version for your platform from the official website:
+
+**[https://www.hermes-ide.com/download](https://www.hermes-ide.com/download)**
+
+Pre-built installers are available for macOS (Apple Silicon & Intel), Windows, and Linux (.deb, .AppImage, .rpm).
+
+### Prerequisites (for building from source)
 
 | Tool | Version | Purpose |
 |------|---------|---------|
