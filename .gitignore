@@ -8,6 +8,7 @@ src-tauri/target/
 # Generated
 src-tauri/gen/
 src-tauri/binaries/
+src-tauri/pty-setup/target/
 
 # OS files
 .DS_Store

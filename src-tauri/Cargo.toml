@@ -4,8 +4,6 @@ version = "0.6.9"
 description = "AI-native terminal"
 authors = ["Gabriel Anhaia"]
 edition = "2021"
-default-run = "hermes-ide"
-
 [lib]
 name = "hermes_ide_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
@@ -13,10 +11,6 @@ crate-type = ["lib", "cdylib", "staticlib"]
 [[bin]]
 name = "hermes-ide"
 path = "src/main.rs"
-
-[[bin]]
-name = "hermes-pty-setup"
-path = "src/bin/hermes_pty_setup.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
