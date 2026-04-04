@@ -2376,28 +2376,6 @@ pub fn get_execution_log(
     db.get_execution_log_entries(&session_id, limit)
 }
 
-// ─── Execution Node Commands ─────────────────────────────────────────
-
-#[tauri::command]
-pub fn get_execution_nodes(
-    state: State<'_, AppState>,
-    session_id: String,
-    limit: Option<i64>,
-    offset: Option<i64>,
-) -> Result<Vec<ExecutionNode>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.get_execution_nodes(&session_id, limit.unwrap_or(50), offset.unwrap_or(0))
-}
-
-#[tauri::command]
-pub fn get_execution_node(
-    state: State<'_, AppState>,
-    id: i64,
-) -> Result<Option<ExecutionNode>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.get_execution_node(id)
-}
-
 // ─── Context Pin Commands ────────────────────────────────────────────
 
 // Tauri command handler — params map to DB columns
@@ -2485,16 +2463,6 @@ pub fn get_context_snapshot(
     db.get_context_snapshot(&session_id, version)
 }
 
-// ─── Execution Nodes Count Command ───────────────────────────────────
-
-#[tauri::command]
-pub fn get_execution_nodes_count(
-    state: State<'_, AppState>,
-    session_id: String,
-) -> Result<i64, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.get_execution_nodes_count(&session_id)
-}
 
 // ─── Cost by Project Command ─────────────────────────────────────────
 
