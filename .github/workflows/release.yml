@@ -146,6 +146,10 @@ jobs:
         working-directory: src-tauri/pty-setup
         run: cargo build --target-dir ../target
 
+      - name: Setup MSVC dev environment (Windows)
+        if: matrix.enabled == 'true' && runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592f3e # v1
+
       - name: Run Rust tests
         if: matrix.enabled == 'true'
         working-directory: src-tauri
