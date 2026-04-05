@@ -688,14 +688,28 @@ mod tests {
             Some("claude --permission-mode bypassPermissions".into())
         );
 
-        // Other providers only support bypassPermissions
+        // Claude dontAsk mode
         assert_eq!(
-            ai_launch_command("aider", "bypassPermissions", ""),
+            ai_launch_command("claude", "dontAsk", ""),
+            Some("claude --permission-mode dontAsk".into())
+        );
+
+        // Other providers: auto and bypass modes
+        assert_eq!(
+            ai_launch_command("aider", "auto", ""),
             Some("aider --yes".into())
         );
         assert_eq!(
-            ai_launch_command("codex", "bypassPermissions", ""),
+            ai_launch_command("aider", "bypassPermissions", ""),
+            Some("aider --yes-always".into())
+        );
+        assert_eq!(
+            ai_launch_command("codex", "auto", ""),
             Some("codex --full-auto".into())
+        );
+        assert_eq!(
+            ai_launch_command("codex", "bypassPermissions", ""),
+            Some("codex --dangerously-bypass-approvals-and-sandbox".into())
         );
         assert_eq!(
             ai_launch_command("gemini", "bypassPermissions", ""),
