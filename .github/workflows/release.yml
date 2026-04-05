@@ -129,7 +129,7 @@ jobs:
         if: matrix.enabled == 'true'
 
       - uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-        if: matrix.enabled == 'true'
+        if: matrix.enabled == 'true' && runner.os != 'Windows'
         with:
           workspaces: src-tauri
           shared-key: release-${{ matrix.os }}-v2
@@ -145,12 +145,6 @@ jobs:
         if: matrix.enabled == 'true' && runner.os == 'macOS'
         working-directory: src-tauri/pty-setup
         run: cargo build --target-dir ../target
-
-      - name: Clean stale build cache (Windows)
-        if: matrix.enabled == 'true' && runner.os == 'Windows'
-        working-directory: src-tauri
-        shell: bash
-        run: cargo clean -p libz-sys 2>/dev/null || true
 
       - name: Run Rust tests
         if: matrix.enabled == 'true'
