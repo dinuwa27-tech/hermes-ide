@@ -110,8 +110,6 @@ jobs:
             enabled: ${{ needs.config.outputs.build_macos }}
           - os: ubuntu-22.04
             enabled: ${{ needs.config.outputs.build_linux }}
-          - os: windows-2022
-            enabled: ${{ needs.config.outputs.build_windows }}
     runs-on: ${{ matrix.os }}
     if: always()
     steps:
@@ -145,10 +143,6 @@ jobs:
         if: matrix.enabled == 'true' && runner.os == 'macOS'
         working-directory: src-tauri/pty-setup
         run: cargo build --target-dir ../target
-
-      - name: Setup MSVC dev environment (Windows)
-        if: matrix.enabled == 'true' && runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
 
       - name: Run Rust tests
         if: matrix.enabled == 'true'
