@@ -296,6 +296,8 @@ jobs:
         shell: bash
         env:
           APPLE_SIGNING_IDENTITY: "${{ matrix.sign && secrets.APPLE_SIGNING_IDENTITY || '' }}"
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           cd src-tauri/pty-setup
           cargo build --release --target ${{ matrix.target }} --target-dir ../target
@@ -308,6 +310,27 @@ jobs:
               codesign --force --deep -s "$APPLE_SIGNING_IDENTITY" "$APP_DIR/../.."
             fi
             echo "Bundled and signed hermes-pty-setup"
+
+            # Rebuild the updater .app.tar.gz so it includes hermes-pty-setup.
+            # Tauri creates this archive during `tauri build`, before the helper
+            # is injected, so the auto-updater would otherwise ship without it.
+            APP_BUNDLE=$(dirname "$APP_DIR")/..
+            APP_BUNDLE=$(cd "$APP_BUNDLE" && pwd)
+            APP_NAME=$(basename "$APP_BUNDLE")
+            TAR_GZ=$(ls ../target/${{ matrix.target }}/release/bundle/macos/*.tar.gz 2>/dev/null | head -1)
+            if [ -n "$TAR_GZ" ]; then
+              PARENT_DIR=$(dirname "$APP_BUNDLE")
+              tar -czf "$TAR_GZ" -C "$PARENT_DIR" "$APP_NAME"
+              echo "Rebuilt updater archive: $TAR_GZ"
+              # Re-sign the updater archive
+              if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+                SIG_FILE="${TAR_GZ}.sig"
+                if command -v tauri &>/dev/null || npx tauri signer sign --help &>/dev/null 2>&1; then
+                  npx tauri signer sign "$TAR_GZ" --private-key "$TAURI_SIGNING_PRIVATE_KEY" ${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:+--password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD"}
+                  echo "Re-signed updater archive"
+                fi
+              fi
+            fi
           fi
 
       - name: Notarize DMG
