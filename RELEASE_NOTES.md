@@ -1,15 +1,9 @@
-# v0.6.10
+# v0.6.12
 
-## New
+## Fixed
 
-- **Template Picker tabs** — Built-in and user templates are now separated into their own tabs for easier browsing.
+- **Projects no longer show thousands of false changes** — Large JavaScript/TypeScript projects with `node_modules/`, `.turbo/`, or other gitignored directories were incorrectly counted as changes, sometimes showing 100k+ files and causing the IDE to freeze or crash. The change counter now correctly respects `.gitignore` rules.
 
-- **Custom template groups** — Organize your saved and imported templates into named groups. Create, rename, and delete groups directly from the picker.
+- **IDE no longer crashes after deleting a branch worktree** — Previously, if a worktree directory was removed externally, the IDE could crash when loading the session. It now gracefully falls back to the project root and cleans up stale references automatically.
 
-- **Auto-grouping on import** — Importing a template bundle automatically creates a group named after the file, keeping imported sets organized.
-
-- **Updated AI permission modes** — New options for Claude (Don't Ask mode), Codex (Auto and full bypass), and Aider (Auto and stronger bypass) to match the latest CLI versions.
-
-## Removed
-
-- **Execution Timeline panel** — The panel below the terminal showing execution nodes has been removed to reduce clutter.
+- **Branch worktree cleanup is more reliable** — Closing a session now fully cleans up worktree references in the underlying git repository, preventing stale locks that could block `git checkout` on the same branch.
