@@ -2002,6 +2002,8 @@ pub fn close_session(
             match db.get_session_worktrees(&session_id) {
                 Ok(worktrees) => {
                     let mut successfully_handled: Vec<String> = Vec::new();
+                    let mut repos_to_prune: std::collections::HashSet<String> =
+                        std::collections::HashSet::new();
 
                     for wt in &worktrees {
                         if wt.is_main_worktree {
@@ -2028,6 +2030,7 @@ pub fn close_session(
 
                         // Look up project path to run git worktree remove
                         if let Ok(Some(proj)) = db.get_project(&wt.project_id) {
+                            repos_to_prune.insert(proj.path.clone());
                             match crate::git::worktree::remove_worktree(
                                 &proj.path,
                                 &session_id,
@@ -2061,6 +2064,19 @@ pub fn close_session(
                     for id in &successfully_handled {
                         if let Err(e) = db.delete_session_worktree(id) {
                             log::warn!("Failed to delete worktree DB record '{}': {}", id, e);
+                        }
+                    }
+
+                    // Prune stale .git/worktrees/ refs for all affected repos.
+                    // This ensures refs are cleaned up even if remove_worktree
+                    // partially failed or the directory was already gone.
+                    for repo_path in &repos_to_prune {
+                        if let Err(e) = crate::git::worktree::cleanup_stale_worktrees(repo_path) {
+                            log::warn!(
+                                "git worktree prune failed for '{}' during session close: {}",
+                                repo_path,
+                                e
+                            );
                         }
                     }
                 }

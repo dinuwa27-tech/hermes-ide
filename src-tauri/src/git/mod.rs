@@ -16,6 +16,12 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::db::Database;
 use crate::AppState;
 
+/// Safety cap: if a project reports more than this many changed files,
+/// stop collecting and return a truncated list with a warning.
+/// This prevents the IDE from becoming unresponsive if .gitignore
+/// exclusion fails or a repo has an unusual number of real changes.
+const VCS_STATUS_FILE_CAP: usize = 10_000;
+
 /// Validates that a path is inside the Hermes worktrees directory
 /// (`hermes-worktrees/`). Returns the canonical path if valid, or an error
 /// if the path is outside the expected worktree directory (prevents path
@@ -68,12 +74,27 @@ fn resolve_worktree_path(
         .map_err(|e| format!("Failed to look up worktree: {}", e))?
     {
         // Verify the worktree directory still exists on disk
-        if !std::path::Path::new(&wt.worktree_path).is_dir() {
-            return Err(
-                "Session working directory no longer exists. The branch worktree may have been deleted externally.".to_string()
+        if std::path::Path::new(&wt.worktree_path).is_dir() {
+            return Ok(wt.worktree_path);
+        }
+
+        // Worktree directory is gone — clean up the stale DB record and
+        // fall back to the project's root path instead of crashing.
+        log::warn!(
+            "Worktree path '{}' no longer exists for session '{}' / project '{}' — \
+             removing stale DB record and falling back to project root.",
+            wt.worktree_path,
+            session_id,
+            project_id
+        );
+        if let Err(e) = db.delete_session_worktree(&wt.id) {
+            log::warn!(
+                "Failed to clean up stale worktree record '{}': {}",
+                wt.id,
+                e
             );
         }
-        return Ok(wt.worktree_path);
+        // Fall through to project path lookup below
     }
     // Fallback: look up the project's path directly
     if let Some(project) = db
@@ -395,16 +416,32 @@ fn get_project_git_status(
         }
     }
 
-    // Get file statuses
+    // Get file statuses — exclude ignored files (.gitignore) to avoid
+    // counting node_modules/, .turbo/, etc. as "changes"
     let mut opts = StatusOptions::new();
-    opts.include_untracked(true).recurse_untracked_dirs(true);
+    opts.include_untracked(true)
+        .recurse_untracked_dirs(true)
+        .include_ignored(false);
 
     let mut files = Vec::new();
     let mut has_conflicts = false;
+    let mut status_capped = false;
 
     match repo.statuses(Some(&mut opts)) {
         Ok(statuses) => {
             for entry in statuses.iter() {
+                // Circuit breaker: stop collecting if we exceed the cap
+                if files.len() >= VCS_STATUS_FILE_CAP {
+                    status_capped = true;
+                    log::warn!(
+                        "VCS status for '{}' exceeded {} files — truncating. \
+                         This usually means .gitignore is not filtering correctly.",
+                        project_path,
+                        VCS_STATUS_FILE_CAP
+                    );
+                    break;
+                }
+
                 let s = entry.status();
                 if s.is_empty() {
                     continue;
@@ -505,6 +542,16 @@ fn get_project_git_status(
         true
     });
 
+    let error = if status_capped {
+        Some(format!(
+            "Too many changed files (>{}) — VCS status truncated. \
+             Check that .gitignore is set up correctly.",
+            VCS_STATUS_FILE_CAP
+        ))
+    } else {
+        None
+    };
+
     GitProjectStatus {
         project_id: project_id.to_string(),
         project_name: project_name.to_string(),
@@ -517,7 +564,7 @@ fn get_project_git_status(
         files,
         has_conflicts,
         stash_count,
-        error: None,
+        error,
     }
 }
 
@@ -1644,13 +1691,23 @@ pub fn list_directory(
         return Err(format!("Not a directory: {}", target_dir.display()));
     }
 
-    // Build git status map
+    // Build git status map — exclude ignored files (.gitignore)
     let mut git_status_map = std::collections::HashMap::new();
     if let Ok(repo) = Repository::open(&project_path) {
         let mut opts = StatusOptions::new();
-        opts.include_untracked(true).recurse_untracked_dirs(true);
+        opts.include_untracked(true)
+            .recurse_untracked_dirs(true)
+            .include_ignored(false);
         if let Ok(statuses) = repo.statuses(Some(&mut opts)) {
             for entry in statuses.iter() {
+                if git_status_map.len() >= VCS_STATUS_FILE_CAP {
+                    log::warn!(
+                        "list_directory status for '{}' exceeded {} entries — truncating.",
+                        project_path,
+                        VCS_STATUS_FILE_CAP
+                    );
+                    break;
+                }
                 let s = entry.status();
                 if s.is_empty() {
                     continue;
@@ -3274,8 +3331,11 @@ pub fn git_worktree_has_changes(
 
     let repo = Repository::open(&project_path).map_err(|e| e.to_string())?;
 
+    // Exclude ignored files (.gitignore) to avoid counting node_modules/ etc.
     let mut opts = StatusOptions::new();
-    opts.include_untracked(true).recurse_untracked_dirs(true);
+    opts.include_untracked(true)
+        .recurse_untracked_dirs(true)
+        .include_ignored(false);
 
     let statuses = repo
         .statuses(Some(&mut opts))
@@ -3283,6 +3343,14 @@ pub fn git_worktree_has_changes(
 
     let mut files = Vec::new();
     for entry in statuses.iter() {
+        if files.len() >= VCS_STATUS_FILE_CAP {
+            log::warn!(
+                "Worktree status for '{}' exceeded {} files — truncating.",
+                project_path,
+                VCS_STATUS_FILE_CAP
+            );
+            break;
+        }
         let s = entry.status();
         if s.is_empty() {
             continue;
@@ -3654,7 +3722,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_worktree_path_missing_dir_returns_error() {
+    fn test_resolve_worktree_path_missing_dir_falls_back_to_project() {
         let db = test_db();
 
         // Register a project
@@ -3671,13 +3739,22 @@ mod tests {
         )
         .unwrap();
 
+        // Should gracefully fall back to the project path instead of erroring
         let result = resolve_worktree_path(&db, "sess1", "proj1");
-        assert!(result.is_err());
-        let err = result.unwrap_err();
         assert!(
-            err.contains("no longer exists"),
-            "Error should mention directory no longer exists, got: {}",
-            err
+            result.is_ok(),
+            "Expected fallback to project path, got error: {:?}",
+            result.err()
+        );
+        assert_eq!(result.unwrap(), "/some/repo");
+
+        // The stale worktree DB record should have been cleaned up
+        let wt = db
+            .get_worktree_by_session_and_project("sess1", "proj1")
+            .unwrap();
+        assert!(
+            wt.is_none(),
+            "Stale worktree record should have been deleted"
         );
     }
 
@@ -3702,5 +3779,260 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.contains("No worktree or project found"));
+    }
+
+    // ── BUG 1 Tests: .gitignore exclusion ─────────────────────────────
+
+    /// Helper: create a fresh git repository with one commit.
+    fn create_test_repo() -> tempfile::TempDir {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "commit.gpgsign", "false"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        std::fs::write(dir.path().join("README.md"), "# Test").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "Initial commit"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        dir
+    }
+
+    #[test]
+    fn test_git_status_excludes_gitignored_files() {
+        let repo_dir = create_test_repo();
+        let repo_path = repo_dir.path().to_str().unwrap();
+
+        // Create a .gitignore that ignores node_modules/
+        std::fs::write(repo_dir.path().join(".gitignore"), "node_modules/\n").unwrap();
+        std::process::Command::new("git")
+            .args(["add", ".gitignore"])
+            .current_dir(repo_dir.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "Add gitignore"])
+            .current_dir(repo_dir.path())
+            .output()
+            .unwrap();
+
+        // Create node_modules/ with many files (these should be ignored)
+        let nm_dir = repo_dir.path().join("node_modules").join("some-package");
+        std::fs::create_dir_all(&nm_dir).unwrap();
+        for i in 0..100 {
+            std::fs::write(nm_dir.join(format!("file_{}.js", i)), "// ignored").unwrap();
+        }
+
+        // Create one real untracked file
+        std::fs::write(repo_dir.path().join("new_file.ts"), "export {}").unwrap();
+
+        let status = get_project_git_status("proj1", "Test", repo_path);
+        assert!(status.is_git_repo);
+        // Should only see new_file.ts, NOT any node_modules files
+        let untracked: Vec<&GitFile> = status
+            .files
+            .iter()
+            .filter(|f| f.area == "untracked")
+            .collect();
+        assert_eq!(
+            untracked.len(),
+            1,
+            "Expected 1 untracked file, got {}: {:?}",
+            untracked.len(),
+            untracked.iter().map(|f| &f.path).collect::<Vec<_>>()
+        );
+        assert_eq!(untracked[0].path, "new_file.ts");
+        assert!(status.error.is_none());
+    }
+
+    #[test]
+    fn test_git_status_excludes_nested_gitignored_dirs() {
+        let repo_dir = create_test_repo();
+        let repo_path = repo_dir.path().to_str().unwrap();
+
+        // Create .gitignore with multiple patterns
+        std::fs::write(
+            repo_dir.path().join(".gitignore"),
+            "node_modules/\n.turbo/\ndist/\n",
+        )
+        .unwrap();
+        std::process::Command::new("git")
+            .args(["add", ".gitignore"])
+            .current_dir(repo_dir.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "Add gitignore"])
+            .current_dir(repo_dir.path())
+            .output()
+            .unwrap();
+
+        // Create ignored directories with files
+        for dir_name in &["node_modules", ".turbo", "dist"] {
+            let dir = repo_dir.path().join(dir_name);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("content.js"), "// ignored").unwrap();
+        }
+
+        let status = get_project_git_status("proj1", "Test", repo_path);
+        assert!(
+            status.files.is_empty(),
+            "Expected 0 files (all gitignored), got {}: {:?}",
+            status.files.len(),
+            status.files.iter().map(|f| &f.path).collect::<Vec<_>>()
+        );
+    }
+
+    // ── BUG 4 Tests: circuit breaker ──────────────────────────────────
+
+    #[test]
+    fn test_vcs_status_file_cap_constant_is_reasonable() {
+        // Ensure the cap is set to a reasonable value
+        assert!(
+            VCS_STATUS_FILE_CAP >= 1000,
+            "Cap should be at least 1000 to avoid false triggers"
+        );
+        assert!(
+            VCS_STATUS_FILE_CAP <= 50_000,
+            "Cap should be at most 50k to prevent UI freeze"
+        );
+    }
+
+    #[test]
+    fn test_git_status_normal_project_no_cap_error() {
+        let repo_dir = create_test_repo();
+        let repo_path = repo_dir.path().to_str().unwrap();
+
+        // Create a few untracked files — well below the cap
+        for i in 0..5 {
+            std::fs::write(repo_dir.path().join(format!("file_{}.txt", i)), "content").unwrap();
+        }
+
+        let status = get_project_git_status("proj1", "Test", repo_path);
+        assert!(
+            status.error.is_none(),
+            "Normal project should not trigger cap error, got: {:?}",
+            status.error
+        );
+        assert_eq!(status.files.len(), 5);
+    }
+
+    // ── BUG 2 Tests: graceful worktree path handling ──────────────────
+
+    #[test]
+    fn test_resolve_worktree_path_missing_dir_cleans_up_db_record() {
+        let db = test_db();
+
+        db.insert_project("proj1", "/some/repo", "Test Project", "[]", "[]")
+            .unwrap();
+        db.insert_session_worktree(
+            "wt1",
+            "sess1",
+            "proj1",
+            "/nonexistent/hermes-worktrees/abc/wt",
+            Some("feat"),
+            false,
+        )
+        .unwrap();
+
+        // Before resolve: worktree record exists
+        let before = db
+            .get_worktree_by_session_and_project("sess1", "proj1")
+            .unwrap();
+        assert!(
+            before.is_some(),
+            "Worktree record should exist before resolve"
+        );
+
+        // Resolve should fall back to project path
+        let result = resolve_worktree_path(&db, "sess1", "proj1");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "/some/repo");
+
+        // After resolve: worktree record should be cleaned up
+        let after = db
+            .get_worktree_by_session_and_project("sess1", "proj1")
+            .unwrap();
+        assert!(
+            after.is_none(),
+            "Stale worktree record should have been deleted"
+        );
+    }
+
+    #[test]
+    fn test_resolve_worktree_path_missing_dir_without_project_returns_error() {
+        let db = test_db();
+
+        // Insert worktree pointing to nonexistent dir, but NO project
+        // This can happen if the project was deleted from DB but worktree record remained
+        db.insert_session_worktree(
+            "wt1",
+            "sess1",
+            "proj_gone",
+            "/nonexistent/hermes-worktrees/abc/wt",
+            Some("feat"),
+            false,
+        )
+        .unwrap();
+
+        let result = resolve_worktree_path(&db, "sess1", "proj_gone");
+        assert!(
+            result.is_err(),
+            "Should error when both worktree path and project are missing"
+        );
+    }
+
+    #[test]
+    fn test_git_status_with_missing_worktree_returns_degraded_status() {
+        // get_project_git_status should not crash even if the path doesn't exist —
+        // it should return is_git_repo=false gracefully
+        let status = get_project_git_status("proj1", "Test", "/nonexistent/path");
+        assert!(!status.is_git_repo);
+        assert!(status.files.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_worktree_valid_dir_returns_worktree_path() {
+        let db = test_db();
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let wt_path = tmp_dir.path().to_str().unwrap();
+
+        db.insert_project("proj1", "/some/repo", "Test Project", "[]", "[]")
+            .unwrap();
+        db.insert_session_worktree("wt1", "sess1", "proj1", wt_path, Some("feat"), false)
+            .unwrap();
+
+        // When worktree path exists, it should return the worktree path (not project path)
+        let result = resolve_worktree_path(&db, "sess1", "proj1");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), wt_path);
+
+        // DB record should still be intact
+        let wt = db
+            .get_worktree_by_session_and_project("sess1", "proj1")
+            .unwrap();
+        assert!(wt.is_some(), "Valid worktree record should NOT be deleted");
     }
 }

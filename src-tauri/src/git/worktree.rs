@@ -475,6 +475,12 @@ pub fn remove_worktree(
         })?;
     }
 
+    // Step 4: Clean up stale .git/worktrees/ refs that point to the deleted path.
+    // `git worktree prune` should handle this, but if it didn't (e.g. the dir
+    // was recreated between prune and now, or a race condition), we clean up
+    // any refs whose `gitdir` file points to the removed worktree path.
+    cleanup_stale_git_worktree_refs(repo_path, worktree_path);
+
     Ok(())
 }
 
@@ -586,6 +592,60 @@ pub fn get_worktree_branch(worktree_path: &str) -> Result<Option<String>, String
 
     // head.shorthand() gives the branch name without `refs/heads/`
     Ok(head.shorthand().map(|s| s.to_string()))
+}
+
+/// Clean up stale `.git/worktrees/<name>` refs whose `gitdir` file points to
+/// a worktree path that no longer exists. This handles cases where
+/// `git worktree prune` didn't fully clean up (e.g. due to race conditions
+/// or the directory being recreated between prune and deletion).
+fn cleanup_stale_git_worktree_refs(repo_path: &str, removed_worktree_path: &str) {
+    let git_worktrees_dir = Path::new(repo_path).join(".git").join("worktrees");
+    if !git_worktrees_dir.is_dir() {
+        return;
+    }
+
+    let entries = match fs::read_dir(&git_worktrees_dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+
+    // Canonicalize the removed path for comparison (if it still exists, which it shouldn't)
+    let removed_normalized = removed_worktree_path.replace('\\', "/");
+
+    for entry in entries.flatten() {
+        let entry_path = entry.path();
+        if !entry_path.is_dir() {
+            continue;
+        }
+
+        let gitdir_file = entry_path.join("gitdir");
+        if !gitdir_file.exists() {
+            continue;
+        }
+
+        // Read the gitdir file to see what worktree path it references
+        if let Ok(content) = fs::read_to_string(&gitdir_file) {
+            let referenced_path = content.trim().replace('\\', "/");
+            // The gitdir file points to the .git file inside the worktree.
+            // Check if it references our removed worktree path.
+            if referenced_path.contains(&removed_normalized)
+                || removed_normalized.contains(referenced_path.trim_end_matches("/.git"))
+            {
+                log::info!(
+                    "Removing stale .git/worktrees/ ref '{}' (pointed to deleted worktree '{}')",
+                    entry_path.display(),
+                    removed_worktree_path
+                );
+                if let Err(e) = fs::remove_dir_all(&entry_path) {
+                    log::warn!(
+                        "Failed to remove stale .git/worktrees/ ref '{}': {}",
+                        entry_path.display(),
+                        e
+                    );
+                }
+            }
+        }
+    }
 }
 
 /// Prune stale worktree bookkeeping entries and return how many were cleaned.
@@ -1387,5 +1447,136 @@ mod tests {
         assert_eq!(wt.branch_name, "compat-branch");
         assert!(!wt.is_main_worktree);
         assert!(Path::new(&wt.worktree_path).exists());
+    }
+
+    // ── BUG 3/5: Worktree cleanup and .git/worktrees/ ref cleanup ─────
+
+    #[test]
+    fn test_remove_worktree_cleans_git_worktrees_refs() {
+        let app_data = create_test_app_data_dir();
+        let repo_dir = create_test_repo();
+        let repo_path = repo_dir.path().to_str().unwrap();
+
+        let wt = create_worktree(
+            app_data.path(),
+            repo_path,
+            "session1",
+            "cleanup-branch",
+            true,
+            None,
+        )
+        .unwrap();
+
+        // Verify .git/worktrees/ has an entry
+        let git_worktrees = repo_dir.path().join(".git").join("worktrees");
+        assert!(
+            git_worktrees.is_dir(),
+            ".git/worktrees/ should exist after creating a worktree"
+        );
+        let entries_before: Vec<_> = fs::read_dir(&git_worktrees)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
+        assert!(
+            !entries_before.is_empty(),
+            ".git/worktrees/ should have entries"
+        );
+
+        // Remove the worktree
+        remove_worktree(repo_path, "session1", &wt.worktree_path).unwrap();
+
+        // .git/worktrees/ entries referencing the removed path should be gone
+        if git_worktrees.is_dir() {
+            let entries_after: Vec<_> = fs::read_dir(&git_worktrees)
+                .unwrap()
+                .filter_map(|e| e.ok())
+                .collect();
+            assert!(
+                entries_after.is_empty(),
+                ".git/worktrees/ should be empty after removal, found: {:?}",
+                entries_after
+                    .iter()
+                    .map(|e| e.file_name())
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn test_remove_worktree_cleans_refs_when_dir_already_deleted() {
+        let app_data = create_test_app_data_dir();
+        let repo_dir = create_test_repo();
+        let repo_path = repo_dir.path().to_str().unwrap();
+
+        let wt = create_worktree(
+            app_data.path(),
+            repo_path,
+            "session1",
+            "ghost-branch",
+            true,
+            None,
+        )
+        .unwrap();
+
+        // Manually delete the worktree directory (simulating external deletion)
+        fs::remove_dir_all(&wt.worktree_path).unwrap();
+        assert!(!Path::new(&wt.worktree_path).exists());
+
+        // remove_worktree should still succeed and clean up .git/worktrees/ refs
+        let result = remove_worktree(repo_path, "session1", &wt.worktree_path);
+        assert!(
+            result.is_ok(),
+            "remove_worktree should succeed even when dir is gone: {:?}",
+            result.err()
+        );
+
+        // After removal + prune + ref cleanup, no stale refs should remain
+        let git_worktrees = repo_dir.path().join(".git").join("worktrees");
+        if git_worktrees.is_dir() {
+            let entries: Vec<_> = fs::read_dir(&git_worktrees)
+                .unwrap()
+                .filter_map(|e| e.ok())
+                .collect();
+            assert!(
+                entries.is_empty(),
+                "Stale .git/worktrees/ refs should have been cleaned up, found: {:?}",
+                entries.iter().map(|e| e.file_name()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn test_cleanup_stale_git_worktree_refs_no_crash_on_empty_repo() {
+        let repo_dir = create_test_repo();
+        let repo_path = repo_dir.path().to_str().unwrap();
+
+        // Should not crash even when .git/worktrees/ doesn't exist
+        cleanup_stale_git_worktree_refs(repo_path, "/some/nonexistent/path");
+        // No assertion needed — just verifying no panic
+    }
+
+    #[test]
+    fn test_cleanup_stale_worktrees_returns_zero_when_nothing_to_prune() {
+        let repo_dir = create_test_repo();
+        let repo_path = repo_dir.path().to_str().unwrap();
+
+        let pruned = cleanup_stale_worktrees(repo_path).unwrap();
+        assert_eq!(pruned, 0, "Nothing should be pruned on a clean repo");
+    }
+
+    #[test]
+    fn test_remove_worktree_safety_rejects_non_hermes_path() {
+        let repo_dir = create_test_repo();
+        let repo_path = repo_dir.path().to_str().unwrap();
+
+        // Attempting to remove a path outside hermes-worktrees/ should be rejected
+        let result = remove_worktree(repo_path, "session1", "/some/regular/path");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("SAFETY"),
+            "Should be rejected by safety guard, got: {}",
+            err
+        );
     }
 }
