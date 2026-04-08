@@ -230,12 +230,18 @@ mod macos {
             anyhow::bail!("empty command");
         }
 
-        // Prepend the hermes-pty-setup trampoline that calls ioctl(TIOCSCTTY)
-        // before exec'ing the real command.  Without this, /dev/tty is
-        // inaccessible and sudo/ssh/gpg password prompts fail.  See issue #214.
-        let helper = pty_setup_helper_path()?;
         let mut argv: Vec<std::ffi::OsString> = Vec::with_capacity(original_argv.len() + 1);
-        argv.push(helper.as_os_str().to_owned());
+        match pty_setup_helper_path() {
+            Ok(helper) => {
+                argv.push(helper.as_os_str().to_owned());
+            }
+            Err(e) => {
+                eprintln!(
+                    "[hermes] WARNING: {} — /dev/tty access (sudo, ssh, gpg) may not work",
+                    e
+                );
+            }
+        }
         argv.extend(original_argv.iter().cloned());
 
         // Build argv as null-terminated CString array
