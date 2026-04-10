@@ -16,7 +16,7 @@ export const AI_PROVIDERS: AiProviderInfo[] = [
 		id: "claude",
 		label: "Claude",
 		description: "Claude Code CLI",
-		installUrl: "https://docs.anthropic.com/en/docs/claude-code/overview",
+		installUrl: "https://claude.ai/claude-code",
 		installCmd: "npm install -g @anthropic-ai/claude-code",
 		authHint: "Run 'claude' to authenticate on first use",
 	},
@@ -25,7 +25,7 @@ export const AI_PROVIDERS: AiProviderInfo[] = [
 		label: "Gemini",
 		description: "Google Gemini CLI",
 		installUrl: "https://github.com/google-gemini/gemini-cli",
-		installCmd: "npm install -g @anthropic-ai/gemini-cli",
+		installCmd: "npm install -g @google/gemini-cli",
 		authHint: "Run 'gemini' to sign in with Google on first use",
 	},
 	{
@@ -51,6 +51,14 @@ export const AI_PROVIDERS: AiProviderInfo[] = [
 		installUrl: "https://docs.github.com/en/copilot/using-github-copilot/using-github-copilot-in-the-command-line",
 		installCmd: "gh extension install github/gh-copilot",
 		authHint: "Run 'gh auth login' first, then install the extension",
+	},
+	{
+		id: "kiro",
+		label: "Kiro",
+		description: "Kiro CLI (AWS)",
+		installUrl: "https://kiro.dev/docs/cli/installation/",
+		installCmd: "npm install -g kiro-cli",
+		authHint: "Run 'kiro-cli login' to authenticate on first use",
 	},
 ];
 
@@ -127,6 +135,10 @@ export const PERMISSION_MODE_FLAGS: Record<string, Partial<Record<PermissionMode
 	},
 	copilot: {
 		default:           { flag: "", description: "Default behavior." },
+	},
+	kiro: {
+		default:           { flag: "", description: "Default behavior — asks before executing tools." },
+		auto:              { flag: "--trust-tools", description: "Trust all tools without confirmation prompts." },
 	},
 };
 

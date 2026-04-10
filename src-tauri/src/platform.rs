@@ -129,6 +129,7 @@ pub const AI_CLI_PROVIDERS: &[(&str, &str)] = &[
     ("codex", "codex"),
     ("gemini", "gemini"),
     ("copilot", "gh"),
+    ("kiro", "kiro-cli"),
 ];
 
 /// Check which AI CLI tools are available on the system.

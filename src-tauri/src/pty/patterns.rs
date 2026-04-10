@@ -141,6 +141,16 @@ lazy_static! {
         r"(?:^|\s)(\/(?:model|approvals|permissions|setup-default-sandbox|experimental|skills|review|rename|new|resume|fork|init|compact|plan|collab|agent|diff|copy|mention|status|debug-config|statusline|theme|mcp|apps|logout|quit|exit|feedback|ps|clean|clear|personality|realtime|settings)\b)"
     ).unwrap();
 
+    // ─── Kiro CLI patterns ────────────────────────────────────────────
+    // Tool call patterns: "✓ read /path" or "? shell git status" or "✓ write file.ts"
+    pub static ref KIRO_TOOL_RE: Regex = Regex::new(
+        r"^[✓?xo⊷✗\-]\s+(read|glob|grep|write|shell|aws|web_search|web_fetch|introspect|code|delegate|report|knowledge|thinking|todo|session|subagent)\b"
+    ).unwrap();
+    // Kiro slash commands
+    pub static ref KIRO_SLASH_RE: Regex = Regex::new(
+        r"(?:^|\s)(\/(?:help|quit|exit|q|clear|context|model|agent|chat|save|load|editor|reply|checkpoint|plan|knowledge|compact|paste|tools|prompts|hooks|usage|mcp|code|experiment|tangent|todos|issue|logdump|changelog)\b)"
+    ).unwrap();
+
     // ─── Port detection ─────────────────────────────────────────────
     pub static ref PORT_RE: Regex = Regex::new(r"port\s*(\d{2,5})").unwrap();
 }

@@ -208,6 +208,7 @@ pub(crate) fn ai_launch_command(
         "aider" => "aider",
         "codex" => "codex",
         "gemini" => "gemini",
+        "kiro" => "kiro-cli",
         "copilot" => return Some(format_with_suffix("gh copilot", custom_suffix)),
         _ => return None,
     };
@@ -223,6 +224,7 @@ pub(crate) fn ai_launch_command(
         ("codex", "auto") => " --full-auto",
         ("codex", "bypassPermissions") => " --dangerously-bypass-approvals-and-sandbox",
         ("gemini", "bypassPermissions") => " --yolo",
+        ("kiro", "auto") => " --trust-tools",
         _ => "",
     };
     cmd.push_str(flag);
@@ -663,6 +665,10 @@ mod tests {
             ai_launch_command("copilot", "default", ""),
             Some("gh copilot".into())
         );
+        assert_eq!(
+            ai_launch_command("kiro", "default", ""),
+            Some("kiro-cli".into())
+        );
         assert_eq!(ai_launch_command("unknown", "default", ""), None);
     }
 
@@ -716,6 +722,12 @@ mod tests {
             Some("gemini --yolo".into())
         );
 
+        // Kiro: auto mode uses --trust-tools
+        assert_eq!(
+            ai_launch_command("kiro", "auto", ""),
+            Some("kiro-cli --trust-tools".into())
+        );
+
         // Unsupported modes fall back to no flag
         assert_eq!(ai_launch_command("aider", "plan", ""), Some("aider".into()));
         assert_eq!(
@@ -746,6 +758,64 @@ mod tests {
             ai_launch_command("claude", "default", "   "),
             Some("claude".into())
         );
+    }
+
+    // ── Consistency guard: every registered provider must have a launch command ──
+
+    #[test]
+    fn every_ai_cli_provider_has_launch_command() {
+        use super::ai_launch_command;
+        use crate::platform::AI_CLI_PROVIDERS;
+
+        for (provider_id, binary_name) in AI_CLI_PROVIDERS {
+            let result = ai_launch_command(provider_id, "default", "");
+            assert!(
+                result.is_some(),
+                "AI_CLI_PROVIDERS has '{}' (binary '{}') but ai_launch_command returns None for it. \
+                 Add '\"{}\"' to the match in ai_launch_command().",
+                provider_id,
+                binary_name,
+                provider_id
+            );
+        }
+    }
+
+    #[test]
+    fn every_ai_cli_provider_has_adapter_in_registry() {
+        use super::adapters::ProviderRegistry;
+        use crate::platform::AI_CLI_PROVIDERS;
+
+        let registry = ProviderRegistry::new();
+
+        // Realistic detection strings for each provider — these mimic actual CLI output.
+        let detection_lines: std::collections::HashMap<&str, &str> = [
+            ("claude", "╭ Claude Code v2.1.0"),
+            ("aider", "Aider v0.86.0"),
+            ("codex", "OpenAI Codex v0.98.0"),
+            ("gemini", "Gemini CLI v1.0.0"),
+            ("copilot", "GitHub Copilot CLI"),
+            ("kiro", "kiro-cli chat"),
+        ]
+        .into_iter()
+        .collect();
+
+        for (provider_id, _) in AI_CLI_PROVIDERS {
+            let test_line = detection_lines.get(provider_id).unwrap_or_else(|| {
+                panic!(
+                    "No detection test line defined for provider '{}'. \
+                     Add an entry to the detection_lines map in this test.",
+                    provider_id
+                )
+            });
+            let detected = registry.detect_agent(test_line);
+            assert!(
+                detected.is_some(),
+                "No adapter in ProviderRegistry detects '{}' for provider '{}'. \
+                 Add an adapter to ProviderRegistry::new().",
+                test_line,
+                provider_id
+            );
+        }
     }
 
     // ── channels_suffix ────────────────────────────────────────────────

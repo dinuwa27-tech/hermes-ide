@@ -1813,6 +1813,106 @@ impl ProviderAdapter for GeminiAdapter {
     }
 }
 
+// ─── Kiro CLI Adapter ───────────────────────────────────────────────
+
+pub(crate) struct KiroAdapter;
+
+impl ProviderAdapter for KiroAdapter {
+    fn detect_agent(&self, line: &str) -> Option<AgentInfo> {
+        let lower = line.to_lowercase();
+        // "kiro-cli" or "Kiro CLI" in output (startup banner, help text, etc.)
+        if lower.contains("kiro-cli") || lower.contains("kiro cli") {
+            return Some(AgentInfo {
+                name: "Kiro CLI".into(),
+                provider: "kiro".into(),
+                model: extract_model_name(line),
+                detected_at: now(),
+                confidence: 0.95,
+            });
+        }
+        // Broader match: "kiro" with contextual keywords
+        if lower.contains("kiro")
+            && (lower.contains("agent")
+                || lower.contains("chat")
+                || lower.contains("spec")
+                || lower.contains("version"))
+        {
+            return Some(AgentInfo {
+                name: "Kiro CLI".into(),
+                provider: "kiro".into(),
+                model: extract_model_name(line),
+                detected_at: now(),
+                confidence: 0.8,
+            });
+        }
+        None
+    }
+
+    fn analyze_line(&self, line: &str) -> LineAnalysis {
+        let mut result = empty_analysis();
+        let now_str = now();
+
+        // Tool call detection: "✓ read /path" or "? shell git status"
+        if let Some(caps) = KIRO_TOOL_RE.captures(line) {
+            let tool = caps[1].to_string();
+            let args = line[caps.get(1).unwrap().end()..].trim().to_string();
+            result.tool_call = Some(ToolCall {
+                tool: tool.clone(),
+                args,
+                timestamp: now_str.clone(),
+            });
+            result.phase_hint = Some(PhaseHint::WorkStarted);
+        }
+
+        // Input-needed detection
+        if is_input_needed_line(line) {
+            result.phase_hint = Some(PhaseHint::InputNeeded);
+        } else if self.is_prompt(line) {
+            result.phase_hint = Some(PhaseHint::PromptDetected);
+        }
+
+        result
+    }
+
+    fn is_prompt(&self, line: &str) -> bool {
+        let t = line.trim();
+        // Kiro prompt is "> " at the start of a line
+        if t == ">" || (t.starts_with("> ") && t.len() < 5) {
+            return true;
+        }
+        is_shell_prompt(t)
+    }
+
+    fn known_actions(&self) -> Vec<ActionTemplate> {
+        vec![
+            ActionTemplate {
+                command: "kiro-cli".into(),
+                label: "Chat".into(),
+                description: "Start interactive Kiro chat".into(),
+                category: "AI".into(),
+            },
+            ActionTemplate {
+                command: "kiro-cli chat".into(),
+                label: "Chat".into(),
+                description: "Start a chat session".into(),
+                category: "AI".into(),
+            },
+            ActionTemplate {
+                command: "/plan".into(),
+                label: "Plan".into(),
+                description: "Switch to Plan agent".into(),
+                category: "AI".into(),
+            },
+            ActionTemplate {
+                command: "/compact".into(),
+                label: "Compact".into(),
+                description: "Summarize conversation to free context".into(),
+                category: "Info".into(),
+            },
+        ]
+    }
+}
+
 // ─── Provider Registry ──────────────────────────────────────────────
 
 pub(crate) struct ProviderRegistry {
@@ -1828,6 +1928,7 @@ impl ProviderRegistry {
                 Box::new(CopilotAdapter),
                 Box::new(CodexAdapter),
                 Box::new(GeminiAdapter),
+                Box::new(KiroAdapter),
             ],
         }
     }
