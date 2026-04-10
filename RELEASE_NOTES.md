@@ -1,9 +1,11 @@
-# v0.6.12
+# v0.6.14
+
+## New
+
+- **Kiro CLI support** — Kiro (AWS) is now a recognized AI agent. Select it from the provider picker to auto-launch `kiro-cli` sessions with permission mode support.
 
 ## Fixed
 
-- **Projects no longer show thousands of false changes** — Large JavaScript/TypeScript projects with `node_modules/`, `.turbo/`, or other gitignored directories were incorrectly counted as changes, sometimes showing 100k+ files and causing the IDE to freeze or crash. The change counter now correctly respects `.gitignore` rules.
+- **Project bar now scrolls when many projects are attached** — Previously, projects beyond the visible area were hidden with no way to reach them. The bar is now horizontally scrollable.
 
-- **IDE no longer crashes after deleting a branch worktree** — Previously, if a worktree directory was removed externally, the IDE could crash when loading the session. It now gracefully falls back to the project root and cleans up stale references automatically.
-
-- **Branch worktree cleanup is more reliable** — Closing a session now fully cleans up worktree references in the underlying git repository, preventing stale locks that could block `git checkout` on the same branch.
+- **Corrected install link for Gemini CLI** — The install command was pointing to the wrong package.
